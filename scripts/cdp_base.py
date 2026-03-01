@@ -16,6 +16,12 @@ async def connect_browser():
     return pw, browser
 
 
+async def safe_disconnect(pw, browser):
+    """断开 CDP 连接，不关闭浏览器进程（只停 Playwright driver）"""
+    try:
+        await pw.stop()
+    except Exception:
+        pass
 async def get_or_create_page(browser, url: str = None) -> Page:
     """获取已有 context 的 page，或新建 page"""
     contexts = browser.contexts
@@ -35,15 +41,32 @@ async def get_or_create_page(browser, url: str = None) -> Page:
 
 
 async def new_tab(browser, url: str) -> Page:
-    """复用已有 tab 导航（不开新 tab），与 social-auto-upload 保持一致"""
+    """复用已有 tab，自动处理离开确认弹窗"""
     contexts = browser.contexts
     ctx = contexts[0] if contexts else await browser.new_context()
     pages = ctx.pages
-    if pages:
-        page = pages[0]  # 复用第一个 tab
-    else:
-        page = await ctx.new_page()
-    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    page = pages[0] if pages else await ctx.new_page()
+
+    # 注册 dialog 自动接受（处理"确认离开"等弹窗）
+    async def _handle_dialog(dialog):
+        await dialog.accept()
+    page.on("dialog", _handle_dialog)
+
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    finally:
+        page.remove_listener("dialog", _handle_dialog)
+
+    # 处理视频号"将此次编辑保留?"DOM 弹窗（点"不保留"）
+    await asyncio.sleep(1)
+    try:
+        leave_btn = page.locator('button:has-text("不保留"), button:has-text("离开")')
+        if await leave_btn.count():
+            await leave_btn.first.click()
+            await asyncio.sleep(1)
+    except Exception:
+        pass
+
     await asyncio.sleep(3)
     return page
 

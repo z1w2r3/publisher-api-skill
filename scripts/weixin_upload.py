@@ -12,7 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import connect_browser, new_tab, log, exit_published, exit_need_login, exit_failed
+from cdp_base import connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"
 CREATE_URL = "https://channels.weixin.qq.com/platform/post/create"
@@ -87,161 +87,118 @@ async def wait_upload_done(page, timeout=300):
         try:
             result = await page.evaluate("""
             () => {
-              // 检查是否有视频上传成功的标志
-              for (const host of document.querySelectorAll('*')) {
-                if (host.shadowRoot) {
-                  const text = host.shadowRoot.textContent || '';
-                  if (text.includes('上传成功') || text.includes('封面')) return true;
-                }
-              }
-              return document.body.innerText.includes('描述') || document.body.innerText.includes('发表');
+              const allText = (() => {
+                let t = document.body.innerText;
+                for (const h of document.querySelectorAll('*'))
+                  if (h.shadowRoot) t += h.shadowRoot.textContent || '';
+                return t;
+              })();
+              if (allText.includes('网络出错') || allText.includes('上传失败')) return 'failed';
+              // 真正完成：进度条不存在 且 取消上传按钮不存在
+              const hasCancelBtn = allText.includes('取消上传');
+              const hasProgressBar = !!document.querySelector('.weui-desktop-progress-bar, [class*=uploadProgress]');
+              if (!hasCancelBtn && !hasProgressBar && allText.includes('删除')) return 'done';
+              return 'uploading';
             }
             """)
-            if result:
+            if result == 'done':
                 log("[视频号] 上传完成")
                 return True
+            elif result == 'failed':
+                log("[视频号] 上传失败（网络错误）")
+                return False
+            log(f"[视频号] 上传中... ({(i+1)*5}s)")
         except:
             pass
     return False
 
 
 async def set_cover(page, cover34_path: str):
+    """
+    设置视频号封面。
+    流程：点"编辑"按钮打开封面弹窗 → set_input_files 注入图片 → 点"确认"
+    """
     if not cover34_path or not os.path.exists(cover34_path):
         log("[视频号] 无封面，跳过")
         return
     log(f"[视频号] 设置封面: {cover34_path}")
 
-    # 点击封面设置
-    await page.evaluate("""
-    () => {
-      // 普通 DOM 先找
-      const el = [...document.querySelectorAll('*')]
-        .find(e => (e.textContent.trim().includes('封面') || e.textContent.trim() === '选择封面')
-          && e.offsetHeight > 0 && e.offsetHeight < 100 && e.children.length < 3);
-      if (el) { el.click(); return 'dom'; }
-      // Shadow DOM
-      for (const host of document.querySelectorAll('*')) {
-        if (host.shadowRoot) {
-          const btn = [...host.shadowRoot.querySelectorAll('*')]
-            .find(e => e.textContent.trim().includes('封面') && e.offsetHeight > 0 && e.offsetHeight < 100);
-          if (btn) { btn.click(); return 'shadow'; }
-        }
-      }
-      return null;
-    }
-    """)
+    # 点"编辑"按钮打开封面弹窗
+    edit_btn = page.get_by_text('编辑', exact=True).first
+    if await edit_btn.count():
+        await edit_btn.click(force=True)
+    else:
+        # 坐标兜底
+        await page.mouse.click(851, 252)
     await asyncio.sleep(2)
 
-    # 上传封面 file input
-    try:
-        inputs = page.locator('input[type=file]')
-        count = await inputs.count()
-        for i in range(count - 1, -1, -1):
-            inp = inputs.nth(i)
-            accept = await inp.get_attribute('accept') or ''
-            if 'image' in accept or 'png' in accept or not accept:
-                await inp.set_input_files(cover34_path)
-                log("[视频号] 封面已上传")
-                break
-    except Exception as e:
-        log(f"[视频号] 封面上传失败: {e}")
-    await asyncio.sleep(3)
+    # 找图片 file input 直接 set_input_files
+    inp = page.locator('input[type=file][accept*="image"]')
+    if await inp.count():
+        await inp.set_input_files(cover34_path)
+        log("[视频号] 封面已上传")
+        await asyncio.sleep(3)
+    else:
+        log("[视频号] 未找到封面 input")
+        return
 
-    # 确认
-    await page.evaluate("""
-    () => {
-      const btn = [...document.querySelectorAll('button')]
-        .find(e => e.textContent.includes('完成') || e.textContent.includes('确认'));
-      if (btn) { btn.click(); return true; }
-      for (const host of document.querySelectorAll('*')) {
-        if (host.shadowRoot) {
-          const b = [...host.shadowRoot.querySelectorAll('button')]
-            .find(e => e.textContent.includes('完成') || e.textContent.includes('确认'));
-          if (b) { b.click(); return true; }
-        }
-      }
-      return false;
-    }
-    """)
+    # 点"确认"按钮（first，避免 strict mode 错误）
+    await page.locator('button:has-text("确认")').first.click()
     await asyncio.sleep(2)
+    log("[视频号] 封面确认完成")
 
 
 async def fill_desc(page, desc: str):
     log("[视频号] 填写描述")
-    # 描述在 iframe 内
-    frames = page.frames
-    for frame in frames:
-        if 'contenteditable' in await frame.content():
-            await frame.evaluate(f"""
-            () => {{
-              const ed = document.querySelector('[contenteditable=true]');
-              if (!ed) return false;
-              ed.focus();
-              document.execCommand('selectAll', false, null);
-              document.execCommand('insertText', false, {repr(desc)});
-              return true;
-            }}
-            """)
-            log("[视频号] 描述已填（iframe）")
-            await asyncio.sleep(1)
-            return
-
-    # 备选：普通 DOM contenteditable
-    await page.evaluate(f"""
-    () => {{
-      const ed = [...document.querySelectorAll('[contenteditable=true]')]
-        .find(e => e.offsetHeight > 40);
-      if (!ed) return false;
-      ed.focus();
-      document.execCommand('selectAll', false, null);
-      document.execCommand('insertText', false, {repr(desc)});
-      return true;
-    }}
-    """)
+    await page.locator("div.input-editor").click()
+    await page.keyboard.type(desc)
     await asyncio.sleep(1)
 
 
 async def fill_short_title(page, short_title: str):
     log(f"[视频号] 填写短标题: {short_title}")
-    # 清理特殊符号，确保 6-16 字
-    import re
-    clean = re.sub(r'[^\u4e00-\u9fff\w\s]', '', short_title)[:16]
-    if len(clean) < 6:
-        clean = clean + '　' * (6 - len(clean))
-
-    await page.evaluate(f"""
-    () => {{
-      const inp = [...document.querySelectorAll('input[type=text], textarea')]
-        .find(e => (e.placeholder?.includes('标题') || e.placeholder?.includes('title'))
-          && e.offsetHeight > 0);
-      if (!inp) return false;
-      const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      nativeSet.call(inp, {repr(clean)});
-      inp.dispatchEvent(new Event('input', {{bubbles: true}}));
-      return true;
-    }}
-    """)
+    short_title_element = page.get_by_text("短标题", exact=True).locator("..").locator(
+        "xpath=following-sibling::div").locator('span input[type="text"]')
+    if await short_title_element.count():
+        await short_title_element.fill(short_title)
+        log("[视频号] 短标题填写成功")
     await asyncio.sleep(1)
 
 
 async def set_original(page):
     """勾选原创声明"""
     log("[视频号] 勾选原创声明")
-    await page.evaluate("""
-    () => {
-      // Shadow DOM checkbox
-      for (const host of document.querySelectorAll('*')) {
-        if (host.shadowRoot) {
-          const cb = host.shadowRoot.querySelector('input[type=checkbox]');
-          if (cb && !cb.checked) { cb.click(); return 'shadow'; }
-        }
-      }
-      // 普通
-      const cb = document.querySelector('input[type=checkbox]');
-      if (cb && !cb.checked) { cb.click(); return 'dom'; }
-      return null;
-    }
-    """)
+    try:
+        # 点原创声明 checkbox
+        cb = page.locator('label.ant-checkbox-wrapper:has-text("展示原创标记")')
+        if not await cb.count():
+            log("[视频号] 未找到原创声明 checkbox，跳过"); return
+        await cb.click()
+        await asyncio.sleep(1.5)
+
+        # 弹出"原创权益"确认框
+        agree_btn = page.get_by_role("button", name="声明原创")
+        if await agree_btn.count() and await agree_btn.is_visible():
+            # 弹窗内的同意 checkbox 在 .declare-body-wrapper 或 .weui-desktop-dialog__bd
+            dialog_cb = page.locator('.declare-body-wrapper input[type=checkbox], .weui-desktop-dialog__bd input[type=checkbox]')
+            if await dialog_cb.count():
+                await dialog_cb.first.click(force=True)
+            else:
+                # 坐标兜底：弹窗左上角 checkbox 约 (384, 365)
+                await page.mouse.click(384, 365)
+            await asyncio.sleep(0.5)
+            await agree_btn.click()
+            log("[视频号] 原创权益弹窗已确认")
+        log("[视频号] 原创声明勾选完成")
+    except Exception as e:
+        log(f"[视频号] 原创声明异常: {e}")
+        # 确保弹窗关闭（点取消）
+        cancel = page.get_by_role("button", name="取消")
+        try:
+            if await cancel.count() and await cancel.is_visible():
+                await cancel.click()
+        except:
+            pass
     await asyncio.sleep(1)
 
 
@@ -250,49 +207,49 @@ async def set_schedule(page, dtime: str):
     from datetime import datetime
     dt = datetime.strptime(dtime, "%Y-%m-%d %H:%M:%S")
 
-    # 点定时发布 radio
-    await page.evaluate("""
-    () => {
-      // shadow DOM radio
-      for (const host of document.querySelectorAll('*')) {
-        if (host.shadowRoot) {
-          const radios = host.shadowRoot.querySelectorAll('input[type=radio]');
-          for (const r of radios) {
-            const label = r.nextElementSibling?.textContent || r.parentElement?.textContent || '';
-            if (label.includes('定时')) { r.click(); return 'shadow'; }
-          }
-        }
-      }
-      // 普通 DOM
-      const el = [...document.querySelectorAll('*')]
-        .find(e => e.textContent.trim() === '定时发送' && e.offsetHeight > 0 && e.offsetHeight < 60);
-      if (el) { el.click(); return 'dom'; }
-      return null;
-    }
-    """)
-    await asyncio.sleep(2)
-
-    # 填时间
-    date_str = dt.strftime("%Y-%m-%d %H:%M")
-    await page.evaluate(f"""
-    () => {{
-      // Shadow DOM input
-      for (const host of document.querySelectorAll('*')) {{
-        if (host.shadowRoot) {{
-          const inp = host.shadowRoot.querySelector('input[placeholder*="时间"], input[type=datetime-local], input[type=text]');
-          if (inp) {{
-            inp.focus();
-            inp.value = {repr(date_str)};
-            inp.dispatchEvent(new Event('input', {{bubbles:true}}));
-            inp.dispatchEvent(new Event('change', {{bubbles:true}}));
-            return 'shadow input';
-          }}
-        }}
-      }}
-      return null;
-    }}
-    """)
+    # 点"定时" label（第2个，第1个是"不定时"）
+    label_element = page.locator("label").filter(has_text="定时").nth(1)
+    await label_element.click()
     await asyncio.sleep(1)
+
+    # 打开日历
+    await page.click('input[placeholder="请选择发表时间"]')
+    await asyncio.sleep(1)
+
+    # 切换到目标月份
+    str_month = str(dt.month) if dt.month > 9 else "0" + str(dt.month)
+    current_month = str_month + "月"
+    try:
+        page_month = await page.inner_text('span.weui-desktop-picker__panel__label:has-text("月")')
+        if page_month != current_month:
+            await page.click('button.weui-desktop-btn__icon__right')
+            await asyncio.sleep(0.5)
+    except:
+        pass
+
+    # 点目标日期
+    elements = await page.query_selector_all('table.weui-desktop-picker__table a')
+    for element in elements:
+        cls = await element.evaluate('el => el.className')
+        if 'weui-desktop-picker__disabled' in cls:
+            continue
+        text = await element.inner_text()
+        if text.strip() == str(dt.day):
+            await element.click()
+            break
+    await asyncio.sleep(0.5)
+
+    # 填小时
+    await page.click('input[placeholder="请选择时间"]')
+    await asyncio.sleep(0.3)
+    await page.keyboard.press("Meta+a")
+    await page.keyboard.type(str(dt.hour))
+    await asyncio.sleep(0.3)
+
+    # 点描述框让时间生效
+    await page.locator("div.input-editor").click()
+    await asyncio.sleep(1)
+    log(f"[视频号] 定时设置完成: {dt.strftime('%Y-%m-%d %H:%M')}")
 
 
 async def publish(page) -> bool:
@@ -370,7 +327,7 @@ async def main():
     except Exception as e:
         exit_failed(str(e))
     finally:
-        await pw.stop()
+        await safe_disconnect(pw, browser)
 
 
 if __name__ == "__main__":

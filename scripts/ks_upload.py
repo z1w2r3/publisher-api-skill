@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import connect_browser, new_tab, log, exit_published, exit_need_login, exit_failed
+from cdp_base import connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
 
 MANAGE_URL = "https://cp.kuaishou.com/article/manage/video"
 PUBLISH_URL = "https://cp.kuaishou.com/article/publish/video"
@@ -305,7 +305,7 @@ async def main():
         traceback.print_exc()
         exit_failed(str(e))
     finally:
-        await pw.stop()
+        await safe_disconnect(pw, browser)
 
 
 if __name__ == "__main__":
