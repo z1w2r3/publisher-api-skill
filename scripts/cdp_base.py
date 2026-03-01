@@ -41,11 +41,21 @@ async def get_or_create_page(browser, url: str = None) -> Page:
 
 
 async def new_tab(browser, url: str) -> Page:
-    """复用已有 tab，自动处理离开确认弹窗"""
+    """复用已有 tab，自动处理离开确认弹窗。关闭同域名旧 tab 避免堆积。"""
     contexts = browser.contexts
     ctx = contexts[0] if contexts else await browser.new_context()
-    pages = ctx.pages
-    page = pages[0] if pages else await ctx.new_page()
+
+    # 关闭同域名的旧 tab（视频号等多次发布会堆积）
+    from urllib.parse import urlparse
+    target_host = urlparse(url).netloc
+    for old_page in list(ctx.pages):
+        try:
+            if urlparse(old_page.url).netloc == target_host:
+                await old_page.close()
+        except Exception:
+            pass
+
+    page = await ctx.new_page()
 
     # 注册 dialog 自动接受（处理"确认离开"等弹窗）
     async def _handle_dialog(dialog):
