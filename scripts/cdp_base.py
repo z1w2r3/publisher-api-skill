@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""CDP 基础工具 - 连接 OpenClaw 浏览器"""
+import asyncio
+import os
+import subprocess
+import sys
+from playwright.async_api import async_playwright, Page, BrowserContext
+
+CDP_URL = "http://127.0.0.1:18800"
+
+
+async def connect_browser():
+    """连接 OpenClaw 浏览器，返回 (playwright, browser)"""
+    pw = await async_playwright().start()
+    browser = await pw.chromium.connect_over_cdp(CDP_URL)
+    return pw, browser
+
+
+async def get_or_create_page(browser, url: str = None) -> Page:
+    """获取已有 context 的 page，或新建 page"""
+    contexts = browser.contexts
+    if not contexts:
+        ctx = await browser.new_context()
+    else:
+        ctx = contexts[0]
+    pages = ctx.pages
+    if pages:
+        page = pages[-1]
+    else:
+        page = await ctx.new_page()
+    if url:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(3)
+    return page
+
+
+async def new_tab(browser, url: str) -> Page:
+    """复用已有 tab 导航（不开新 tab），与 social-auto-upload 保持一致"""
+    contexts = browser.contexts
+    ctx = contexts[0] if contexts else await browser.new_context()
+    pages = ctx.pages
+    if pages:
+        page = pages[0]  # 复用第一个 tab
+    else:
+        page = await ctx.new_page()
+    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    await asyncio.sleep(3)
+    return page
+
+
+def osascript_select_file(file_path: str):
+    """用 osascript 在系统对话框中选择文件"""
+    abs_path = os.path.abspath(file_path)
+    # 复制路径到剪贴板
+    subprocess.run(["pbcopy"], input=abs_path.encode(), check=True)
+    script = '''
+tell application "Google Chrome" to activate
+delay 0.5
+tell application "System Events"
+    keystroke "g" using {command down, shift down}
+    delay 1.0
+    keystroke "v" using command down
+    delay 0.5
+    key code 36
+    delay 1.5
+    key code 36
+end tell
+'''
+    subprocess.run(["osascript", "-e", script], check=True)
+    asyncio.get_event_loop().run_until_complete(asyncio.sleep(2))
+
+
+def log(msg: str):
+    print(msg, flush=True)
+
+
+def exit_published(scheduled_time: str = ""):
+    msg = "PUBLISHED"
+    if scheduled_time:
+        msg += f" scheduled_time={scheduled_time}"
+    print(msg, flush=True)
+    sys.exit(0)
+
+
+def exit_need_login(platform: str):
+    print(f"NEED_LOGIN {platform}需要扫码登录", flush=True)
+    sys.exit(2)
+
+
+def exit_failed(reason: str):
+    print(f"FAILED error={reason}", flush=True)
+    sys.exit(1)
