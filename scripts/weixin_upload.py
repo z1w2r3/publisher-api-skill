@@ -142,8 +142,12 @@ async def set_cover(page, cover34_path: str):
         log("[视频号] 未找到封面 input")
         return
 
-    # 点"确认"按钮（first，避免 strict mode 错误）
-    await page.locator('button:has-text("确认")').first.click()
+    # 点"确认"按钮（force=True 穿透可能的遮挡）
+    confirm_btn = page.locator('button:has-text("确认")').first
+    try:
+        await confirm_btn.click(timeout=5000)
+    except Exception:
+        await confirm_btn.click(force=True)
     await asyncio.sleep(2)
     log("[视频号] 封面确认完成")
 
