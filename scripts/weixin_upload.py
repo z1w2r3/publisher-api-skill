@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import os
 import sys
+import re
 
 sys.path.insert(0, os.path.dirname(__file__))
 from cdp_base import connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
@@ -159,7 +160,14 @@ async def fill_desc(page, desc: str):
     await asyncio.sleep(1)
 
 
+def normalize_short_title(s: str) -> str:
+    """去除中英文之间多余空格，保留纯英文单词间空格"""
+    s = re.sub(r"([\u4e00-\u9fff])\s+([A-Za-z0-9])", r"\1\2", s)
+    s = re.sub(r"([A-Za-z0-9])\s+([\u4e00-\u9fff])", r"\1\2", s)
+    return s.strip()
+
 async def fill_short_title(page, short_title: str):
+    short_title = normalize_short_title(short_title)
     log(f"[视频号] 填写短标题: {short_title}")
     short_title_element = page.get_by_text("短标题", exact=True).locator("..").locator(
         "xpath=following-sibling::div").locator('span input[type="text"]')

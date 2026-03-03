@@ -1,2 +1,13 @@
 __pycache__/
 *.pyc
+
+# 敏感信息
+*.json
+.env
+*.env.*
+cookies/
+**/cookies/
+
+# 本地路径配置
+local_config.py
+config_local.*

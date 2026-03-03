@@ -170,3 +170,18 @@ python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.p
   --video ~/Media/staging/0228-deer-flow/landscape.mp4 \
   --title "测试标题" --desc "测试简介" --tags "测试"
 ```
+
+## 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `scripts/check_params.py` | 发布参数验证脚本，在执行发布前必须先通过验证 |
+| `scripts/bili_upload.py` | B站发布脚本 |
+| `scripts/ks_upload.py` | 快手发布脚本 |
+| `scripts/weixin_upload.py` | 视频号发布脚本 |
+| `scripts/douyin_upload.py` | 抖音发布脚本 |
+| `scripts/bili_stats.py` | B站数据回收 |
+| `scripts/ks_stats.py` | 快手数据回收 |
+| `scripts/douyin_stats.py` | 抖音数据回收 |
+| `scripts/weixin_stats.py` | 视频号数据回收 |
+| `docs/dispatcher-v3.md` | cron 调度器提示词文档 |
