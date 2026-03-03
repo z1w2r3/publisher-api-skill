@@ -157,18 +157,7 @@ curl -s -X POST 'http://192.168.50.40:3456/api/publish/claim' \
   ✅ 正确：3天3000星
 ```
 
-**✅ 发布前必须先运行参数验证脚本：**
 
-```bash
-cd /Users/niuone/code/social-auto-upload && python3 \
-  /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/check_params.py \
-  --platform {平台名} \
-  --video "..." --title "..." --desc "..." --tags "..." \
-  --short-title "..." --dtime "..."
-```
-
-- 输出 `PARAMS_OK` → 继续执行发布脚本
-- 输出 `ERROR: ...` → 根据错误信息修正参数后重新验证，**不得跳过验证直接发布**
 
 脚本 stdout 最后一行是结果：`PUBLISHED`/`NEED_LOGIN`/`FAILED`
 exit code：0=成功，1=失败，2=需登录
