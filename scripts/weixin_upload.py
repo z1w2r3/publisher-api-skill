@@ -228,60 +228,38 @@ async def set_schedule(page, dtime: str):
     await page.click('input[placeholder="请选择发表时间"]')
     await asyncio.sleep(1)
 
-    # 日历在 iframe 内，通过 iframe 查找并点击目标日期
-    target_day = str(dt.day)
-    clicked = await page.evaluate("""
-    (targetDay) => {
-        const iframe = document.querySelector('iframe');
-        if (!iframe) return 'no-iframe';
-        const iDoc = iframe.contentDocument;
-        if (!iDoc) return 'no-content';
-        const all = [...iDoc.querySelectorAll('a,td,li,span')];
-        for (const el of all) {
-            if (el.textContent.trim() !== targetDay) continue;
-            const cls = el.className || '';
-            if (cls.includes('disabled') || cls.includes('prev') || cls.includes('next')) continue;
-            if (el.offsetHeight > 0 && el.offsetHeight < 60 && el.offsetWidth < 60) {
-                el.click();
-                return 'clicked-' + el.tagName;
-            }
-        }
-        return 'not-found';
-    }
-    """, target_day)
-    log(f"[视频号] 日历点击日期: {clicked}")
-    await asyncio.sleep(0.5)
-
-    # 填小时：通过 iframe 查找时间输入框
-    hour_str = str(dt.hour).zfill(2)
-    await page.evaluate("""
-    (hour) => {
-        const iframe = document.querySelector('iframe');
-        if (!iframe) return;
-        const iDoc = iframe.contentDocument;
-        if (!iDoc) return;
-        const inputs = [...iDoc.querySelectorAll('input')];
-        for (const inp of inputs) {
-            if ((inp.placeholder && inp.placeholder.includes('\u65f6\u95f4')) ||
-                (inp.value && /^\d{1,2}:\d{2}$/.test(inp.value))) {
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value').set;
-                setter.call(inp, hour + ':00');
-                inp.dispatchEvent(new Event('input', {bubbles: true}));
-                inp.dispatchEvent(new Event('change', {bubbles: true}));
-                inp.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
-                break;
-            }
-        }
-    }
-    """, hour_str)
-    await asyncio.sleep(0.5)
-
-    # 点描述框让时间生效
+    # 切换到目标月份
+    str_month = str(dt.month) if dt.month > 9 else "0" + str(dt.month)
+    current_month = str_month + "月"
     try:
-        await page.locator("div.input-editor").click()
+        page_month = await page.inner_text('span.weui-desktop-picker__panel__label:has-text("月")')
+        if page_month != current_month:
+            await page.click('button.weui-desktop-btn__icon__right')
+            await asyncio.sleep(0.5)
     except:
         pass
+
+    # 点目标日期
+    elements = await page.query_selector_all('table.weui-desktop-picker__table a')
+    for element in elements:
+        cls = await element.evaluate('el => el.className')
+        if 'weui-desktop-picker__disabled' in cls:
+            continue
+        text = await element.inner_text()
+        if text.strip() == str(dt.day):
+            await element.click()
+            break
+    await asyncio.sleep(0.5)
+
+    # 填小时
+    await page.click('input[placeholder="请选择时间"]')
+    await asyncio.sleep(0.3)
+    await page.keyboard.press("Meta+a")
+    await page.keyboard.type(str(dt.hour))
+    await asyncio.sleep(0.3)
+
+    # 点描述框让时间生效
+    await page.locator("div.input-editor").click()
     await asyncio.sleep(1)
     log(f"[视频号] 定时设置完成: {dt.strftime('%Y-%m-%d %H:%M')}")
 
