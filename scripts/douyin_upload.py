@@ -189,6 +189,17 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             return False
 
     if cover34_path and os.path.exists(cover34_path):
+        # 等待封面弹窗内部按钮稳定（页面渲染需要时间）
+        for _ in range(10):
+            await asyncio.sleep(1)
+            has = await page.evaluate("""
+            () => !!([...document.querySelectorAll('*')]
+              .find(e => e.textContent.trim() === '上传封面'
+                && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60))
+            """)
+            if has:
+                break
+        await asyncio.sleep(1)
         await upload_via_btn(cover34_path, "竖封面3:4")
 
     if cover43_path and os.path.exists(cover43_path):
