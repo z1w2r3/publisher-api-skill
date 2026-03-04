@@ -221,6 +221,9 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
     }
     """)
     await asyncio.sleep(2)
+    # 清理任何遗留的 file chooser 或 dialog
+    await page.keyboard.press("Escape")
+    await asyncio.sleep(0.5)
     log("[抖音] 封面弹窗关闭")
 
 
@@ -307,6 +310,9 @@ async def main():
         await fill_title(page, args.title)
         await fill_desc(page, args.desc, tags=tags)
         await set_cover(page, args.cover34, args.cover43)
+        # 确保封面相关弹窗/文件选择框全部关闭
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(1)
 
         if args.dtime:
             await set_schedule(page, args.dtime)
