@@ -82,6 +82,10 @@ fail_counts   = video.get('fail_counts', {})
 
 ### Step 4: 下载素材
 
+> ⚠️ **路径规则（严格遵守）**：所有脚本的 `--video`、`--cover*` 参数必须使用 `~/Media/staging/{slug}/` 路径。
+> **绝对不能**使用 Hub API 返回的 `project_path`、`video_path`、`landscape_path` 字段作为文件路径——那是服务器上的旧路径，本机不存在。
+> 正确格式：`~/Media/staging/{slug}/2026-03-portrait.mp4`
+
 ```bash
 SLUG="{slug}"
 STAGING=~/Media/staging/$SLUG
