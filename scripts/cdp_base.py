@@ -107,6 +107,18 @@ def log(msg: str):
     print(msg, flush=True)
 
 
+def log_argv():
+    """在脚本启动时记录完整命令到日志文件，方便排查问题。"""
+    import datetime
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_path = f"/tmp/dispatch_run_{date_str}.log"
+    script = sys.argv[0].split("/")[-1]
+    args = " ".join(sys.argv[1:])
+    with open(log_path, "a") as f:
+        f.write(f"[{ts}] {script} {args}\n\n")
+
+
 def exit_published(scheduled_time: str = ""):
     msg = "PUBLISHED"
     if scheduled_time:

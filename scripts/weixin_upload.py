@@ -13,7 +13,7 @@ import sys
 import re
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
+from cdp_base import log_argv,  connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"
 CREATE_URL = "https://channels.weixin.qq.com/platform/post/create"
@@ -295,6 +295,7 @@ async def publish(page) -> bool:
 
 
 async def main():
+    log_argv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=True)
     parser.add_argument("--short-title", required=True)

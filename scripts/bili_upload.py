@@ -18,6 +18,19 @@ B站视频上传脚本（API方式，0 tokens）
 """
 import argparse
 import json
+import sys as _sys
+import datetime as _datetime
+
+
+def log_argv():
+    """记录完整命令到日志文件。"""
+    date_str = _datetime.datetime.now().strftime("%Y-%m-%d")
+    ts = _datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_path = f"/tmp/dispatch_run_{date_str}.log"
+    script = _sys.argv[0].split("/")[-1]
+    args = " ".join(_sys.argv[1:])
+    with open(log_path, "a") as f:
+        f.write(f"[{ts}] {script} {args}\n\n")
 import sys
 import os
 import time
@@ -57,6 +70,7 @@ def submit_v3(session, bili_jct: str, video_data: dict) -> dict:
 
 
 def main():
+    log_argv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--cookie", required=True)
     parser.add_argument("--video", required=True)
