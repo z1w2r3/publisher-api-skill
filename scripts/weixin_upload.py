@@ -159,12 +159,19 @@ async def set_cover(page, cover34_path: str):
             log("[视频号] 未找到封面 input，跳过封面")
             return
 
-    # 点"确认"按钮（force=True 穿透可能的遮挡）
+    # 等封面图片渲染完成后再点"确认"（按钮在图片加载前可能不可见）
+    await asyncio.sleep(4)
     confirm_btn = page.locator('button:has-text("确认")').first
     try:
-        await confirm_btn.click(timeout=5000)
+        await confirm_btn.wait_for(state="visible", timeout=8000)
+        await confirm_btn.click()
     except Exception:
-        await confirm_btn.click(force=True)
+        # 降级：强制点击（穿透遮挡）
+        try:
+            await confirm_btn.click(force=True)
+        except Exception as e:
+            log(f"[视频号] 封面确认按钮点击失败: {e}，跳过封面继续发布")
+            return
     await asyncio.sleep(2)
     log("[视频号] 封面确认完成")
 
