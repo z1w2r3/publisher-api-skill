@@ -25,8 +25,12 @@ async def check_login_and_duplicate(page, short_title: str) -> dict:
     async (title) => {
       await new Promise(r => setTimeout(r, 2000));
       const text = document.body.innerText;
-      // 检查是否登录
-      if (text.includes('登录') && !text.includes('视频')) return { loggedIn: false };
+      // 扫码登录页特征（优先判断）
+      const loginKeywords = ['扫描二维码', '扫码登录', '微信扫一扫', '立即登录', '手机号登录'];
+      if (loginKeywords.some(kw => text.includes(kw))) return { loggedIn: false };
+      // 已登录特征：必须有发布/管理相关内容
+      const loggedInKeywords = ['发布视频', '我的视频', '视频管理', '上传视频'];
+      if (!loggedInKeywords.some(kw => text.includes(kw))) return { loggedIn: false };
       const core = s => s.replace(/[^\\u4e00-\\u9fff\\w]/g, '');
       // shadow DOM 中找内容
       let allText = text;
@@ -78,6 +82,11 @@ async def upload_video(page, video_path: str):
         log(f"[视频号] 获取到上传坐标: {js_result}，请确认 OpenClaw 浏览器窗口在前台")
         exit_failed("视频号：需要 peekaboo 物理点击上传，请使用 auto-browser-skill 处理视频号")
     else:
+        # 找不到上传入口，先检查是否是登录问题
+        page_text = await page.evaluate("() => document.body.innerText")
+        login_keywords = ['扫描二维码', '扫码登录', '微信扫一扫', '立即登录', '手机号登录']
+        if any(kw in page_text for kw in login_keywords):
+            exit_need_login("视频号（上传页未找到上传入口，疑似未登录）")
         exit_failed("视频号：找不到视频上传 input")
 
 
