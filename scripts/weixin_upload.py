@@ -130,50 +130,40 @@ async def set_cover(page, cover34_path: str):
         return
     log(f"[视频号] 设置封面: {cover34_path}")
 
-    # 点"编辑"按钮打开封面弹窗，优先拦截文件选择框（防止 OS 对话框弹出）
+    # Step1: 正常点击"编辑"按钮，让封面弹窗真正打开（不用 force=True，保证 UI 可见）
     edit_btn = page.get_by_text('编辑', exact=True).first
-    uploaded = False
     try:
-        async with page.expect_file_chooser(timeout=6000) as fc_info:
-            if await edit_btn.count():
-                await edit_btn.click(force=True)
-            else:
-                await page.mouse.click(851, 252)
-        fc = await fc_info.value
-        await fc.set_files(cover34_path)
-        log("[视频号] 封面已上传（via file chooser）")
-        uploaded = True
-        await asyncio.sleep(3)
-    except Exception as e:
-        log(f"[视频号] 未捕获到文件选择框（{e}），尝试直接注入 input")
-
-    if not uploaded:
-        # 等弹窗动画完全加载
-        await asyncio.sleep(4)
-        inp = page.locator('input[type=file][accept*="image"]')
-        if await inp.count():
-            await inp.set_input_files(cover34_path)
-            log("[视频号] 封面已上传（via input）")
-            await asyncio.sleep(3)
+        if await edit_btn.count():
+            await edit_btn.scroll_into_view_if_needed()
+            await edit_btn.click()
+            log("[视频号] 已点击编辑按钮")
         else:
-            log("[视频号] 未找到封面 input，跳过封面")
-            return
+            await page.mouse.click(851, 252)
+            log("[视频号] 已点击编辑坐标（兜底）")
+    except Exception as e:
+        log(f"[视频号] 编辑按钮点击失败: {e}，跳过封面")
+        return
 
-    # 等封面图片渲染完成后再点"确认"（按钮在图片加载前可能不可见）
+    # Step2: 等弹窗动画完成，再注入文件
+    await asyncio.sleep(3)
+    inp = page.locator('input[type=file][accept*="image"]')
+    if not await inp.count():
+        log("[视频号] 未找到封面 input，跳过封面")
+        return
+    await inp.set_input_files(cover34_path)
+    log("[视频号] 封面文件已注入")
+
+    # Step3: 等图片渲染完成，确认按钮变为可见后点击
     await asyncio.sleep(4)
     confirm_btn = page.locator('button:has-text("确认")').first
     try:
-        await confirm_btn.wait_for(state="visible", timeout=8000)
+        await confirm_btn.wait_for(state="visible", timeout=10000)
         await confirm_btn.click()
-    except Exception:
-        # 降级：强制点击（穿透遮挡）
-        try:
-            await confirm_btn.click(force=True)
-        except Exception as e:
-            log(f"[视频号] 封面确认按钮点击失败: {e}，跳过封面继续发布")
-            return
+        log("[视频号] 封面确认完成")
+    except Exception as e:
+        log(f"[视频号] 封面确认按钮点击失败: {e}，跳过封面继续发布")
+        return
     await asyncio.sleep(2)
-    log("[视频号] 封面确认完成")
 
 
 async def fill_desc(page, desc: str):
@@ -344,6 +334,14 @@ async def main():
         ok = await wait_upload_done(page)
         if not ok:
             exit_failed("视频号：视频上传超时")
+
+        # 视频上传后平台需要生成封面缩略图（显示"生成中"），等"编辑"按钮出现再继续
+        log("[视频号] 等待封面生成完成（编辑按钮出现）...")
+        try:
+            await page.get_by_text('编辑', exact=True).first.wait_for(state="visible", timeout=60000)
+            log("[视频号] 封面已生成，开始设置自定义封面")
+        except Exception:
+            log("[视频号] 等待编辑按钮超时，继续尝试")
 
         # 顺序：封面 → 描述 → 短标题 → 原创 → 定时 → 发表
         await set_cover(page, args.cover34)
