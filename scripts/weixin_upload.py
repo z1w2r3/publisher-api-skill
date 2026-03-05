@@ -25,12 +25,9 @@ async def check_login_and_duplicate(page, short_title: str) -> dict:
     async (title) => {
       await new Promise(r => setTimeout(r, 2000));
       const text = document.body.innerText;
-      // 扫码登录页特征（优先判断）
+      // 扫码登录页特征（明确出现才判为未登录）
       const loginKeywords = ['扫描二维码', '扫码登录', '微信扫一扫', '立即登录', '手机号登录'];
       if (loginKeywords.some(kw => text.includes(kw))) return { loggedIn: false };
-      // 已登录特征：必须有发布/管理相关内容
-      const loggedInKeywords = ['发布视频', '我的视频', '视频管理', '上传视频'];
-      if (!loggedInKeywords.some(kw => text.includes(kw))) return { loggedIn: false };
       const core = s => s.replace(/[^\\u4e00-\\u9fff\\w]/g, '');
       // shadow DOM 中找内容
       let allText = text;
