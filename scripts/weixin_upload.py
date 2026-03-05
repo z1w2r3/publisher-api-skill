@@ -130,24 +130,34 @@ async def set_cover(page, cover34_path: str):
         return
     log(f"[视频号] 设置封面: {cover34_path}")
 
-    # 点"编辑"按钮打开封面弹窗
+    # 点"编辑"按钮打开封面弹窗，优先拦截文件选择框（防止 OS 对话框弹出）
     edit_btn = page.get_by_text('编辑', exact=True).first
-    if await edit_btn.count():
-        await edit_btn.click(force=True)
-    else:
-        # 坐标兜底
-        await page.mouse.click(851, 252)
-    await asyncio.sleep(2)
-
-    # 找图片 file input 直接 set_input_files
-    inp = page.locator('input[type=file][accept*="image"]')
-    if await inp.count():
-        await inp.set_input_files(cover34_path)
-        log("[视频号] 封面已上传")
+    uploaded = False
+    try:
+        async with page.expect_file_chooser(timeout=6000) as fc_info:
+            if await edit_btn.count():
+                await edit_btn.click(force=True)
+            else:
+                await page.mouse.click(851, 252)
+        fc = await fc_info.value
+        await fc.set_files(cover34_path)
+        log("[视频号] 封面已上传（via file chooser）")
+        uploaded = True
         await asyncio.sleep(3)
-    else:
-        log("[视频号] 未找到封面 input")
-        return
+    except Exception as e:
+        log(f"[视频号] 未捕获到文件选择框（{e}），尝试直接注入 input")
+
+    if not uploaded:
+        # 等弹窗动画完全加载
+        await asyncio.sleep(4)
+        inp = page.locator('input[type=file][accept*="image"]')
+        if await inp.count():
+            await inp.set_input_files(cover34_path)
+            log("[视频号] 封面已上传（via input）")
+            await asyncio.sleep(3)
+        else:
+            log("[视频号] 未找到封面 input，跳过封面")
+            return
 
     # 点"确认"按钮（force=True 穿透可能的遮挡）
     confirm_btn = page.locator('button:has-text("确认")').first
