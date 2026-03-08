@@ -108,9 +108,11 @@ LANDSCAPE_FILE="{landscape_path的文件名}"
 [ -n "$LANDSCAPE_FILE" ] && { [ -f "$LANDSCAPE_FILE" ] && [ $(stat -f%z "$LANDSCAPE_FILE") -gt 1000000 ] \
   || curl -sf -o "$LANDSCAPE_FILE" "$BASE/{landscape_path}" || true; }
 
-# 封面
-for cover in cover-3x4.png cover-4x3.png cover-16x9.png; do
-  [ -f "$cover" ] || curl -sf -O "$BASE/$cover" || true
+# 封面：从 API 返回的 covers 数组逐项下载，源URL用 $BASE/{cover_path}，本地保存为 basename（平铺）
+# covers 可能是 ["video/out/cover-3x4.png"] 或 ["cover-3x4.png"]，两种都处理
+for cover_path in {covers数组展开，每项一行}; do
+  local_name=$(basename "$cover_path")
+  [ -f "$local_name" ] || curl -sf -o "$local_name" "$BASE/$cover_path" || true
 done
 ```
 

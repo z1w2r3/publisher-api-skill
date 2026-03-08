@@ -31,7 +31,7 @@ metadata: {"openclaw":{"os":["darwin"],"emoji":"🚀"}}
 
 | 平台 | 脚本 | 视频文件 | Cookie |
 |------|------|---------|--------|
-| bilibili | bili_upload.py | landscape（横屏） | `/tmp/sau-test/cookies/bilibili_uploader/account.json` |
+| bilibili | bili_upload.py | landscape（横屏） | `/Users/niuone/.openclaw/cookies/bilibili_uploader/account.json` |
 | douyin | douyin_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
 | kuaishou | ks_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
 | weixin-channels | weixin_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
@@ -72,7 +72,7 @@ done
 ```bash
 cd /Users/niuone/code/social-auto-upload
 python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /tmp/sau-test/cookies/bilibili_uploader/account.json \
+  --cookie /Users/niuone/.openclaw/cookies/bilibili_uploader/account.json \
   --video "$STAGING/landscape.mp4" \
   --title "B站标题" \
   --desc "B站简介" \
@@ -166,7 +166,7 @@ curl -s -X POST 'http://192.168.50.40:3456/api/publish/complete?key=pk_publisher
 # 测试 B站上传
 cd /Users/niuone/code/social-auto-upload
 python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /tmp/sau-test/cookies/bilibili_uploader/account.json \
+  --cookie /Users/niuone/.openclaw/cookies/bilibili_uploader/account.json \
   --video ~/Media/staging/0228-deer-flow/landscape.mp4 \
   --title "测试标题" --desc "测试简介" --tags "测试"
 ```
