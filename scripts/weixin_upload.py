@@ -396,12 +396,12 @@ async def main():
         log("[视频号] 视频上传成功，等待 30s 让平台处理...")
         await asyncio.sleep(30)
 
-        # 视频上传后封面缩略图需要时间生成（会经历"生成中"→灰色→可点击的"编辑"按钮）
-        # 用 JS 轮询 wujie shadow root，等 .edit-btn 出现且 offsetHeight > 0（真正可点击）
-        log("[视频号] 等待封面生成完成（编辑按钮可点击）...")
+        # 视频上传后平台需要转码（会显示"等待 X 分钟"），转码完成后才出现 .edit-btn
+        # 轮询最多 10 分钟（120×5s），等 .edit-btn 出现且可点击
+        log("[视频号] 等待平台转码完成（编辑按钮可点击，最多等 10 分钟）...")
         edit_ready = False
-        for i in range(24):  # 最多等 60s，每 2.5s 检查一次
-            await asyncio.sleep(2.5)
+        for i in range(120):  # 最多等 600s（10 分钟），每 5s 检查一次
+            await asyncio.sleep(5)
             edit_ready = await page.evaluate("""
             () => {
               try {
@@ -414,10 +414,12 @@ async def main():
             }
             """)
             if edit_ready:
-                log(f"[视频号] 封面编辑按钮已就绪（{(i+1)*2.5:.0f}s）")
+                log(f"[视频号] 封面编辑按钮已就绪（{30+(i+1)*5}s）")
                 break
+            if i % 12 == 0:  # 每分钟打一次日志
+                log(f"[视频号] 等待转码... ({30+(i+1)*5}s)")
         if not edit_ready:
-            log("[视频号] 等待编辑按钮超时（60s），继续尝试")
+            log("[视频号] 等待编辑按钮超时（10 分钟），继续尝试")
 
         # 顺序：封面 → 描述 → 短标题 → 原创 → 定时 → 发表
         await set_cover(page, args.cover34)
