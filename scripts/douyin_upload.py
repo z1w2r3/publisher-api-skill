@@ -301,6 +301,10 @@ async def main():
 
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None
 
+    # 启动前先关掉可能残留的 OS 文件选择框
+    os.system("osascript -e 'tell application \"System Events\" to key code 53'")
+    await asyncio.sleep(0.3)
+
     pw, browser = await connect_browser()
     try:
         page = await new_tab(browser, MANAGE_URL)
