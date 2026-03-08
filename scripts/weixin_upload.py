@@ -107,7 +107,7 @@ async def upload_video(page, video_path: str):
         exit_failed("视频号：找不到视频上传 input")
 
 
-async def wait_upload_done(page, timeout=300):
+async def wait_upload_done(page, timeout=600):
     log("[视频号] 等待上传完成...")
     for i in range(timeout // 5):
         await asyncio.sleep(5)
