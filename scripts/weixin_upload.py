@@ -360,6 +360,10 @@ async def main():
         if not ok:
             exit_failed("视频号：视频上传超时")
 
+        # 上传成功后等待 30s，让平台完成视频处理和封面生成
+        log("[视频号] 视频上传成功，等待 30s 让平台处理...")
+        await asyncio.sleep(30)
+
         # 视频上传后封面缩略图需要时间生成（会经历"生成中"→灰色→可点击的"编辑"按钮）
         # 用 JS 轮询 wujie shadow root，等 .edit-btn 出现且 offsetHeight > 0（真正可点击）
         log("[视频号] 等待封面生成完成（编辑按钮可点击）...")
