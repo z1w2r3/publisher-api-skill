@@ -154,10 +154,10 @@ async def set_cover(page, cover34_path: str):
 
     # Step2: 等弹窗动画完成，用 expect_file_chooser 拦截文件选择框（防止 OS 弹窗出现）
     # 原理：在 JS click input 之前注册拦截器，OS 文件选择框被 Playwright 截住，文件直接注入
-    await asyncio.sleep(2)
+    await asyncio.sleep(10)
     uploaded = False
     try:
-        async with page.expect_file_chooser(timeout=6000) as fc_info:
+        async with page.expect_file_chooser(timeout=8000) as fc_info:
             # JS 触发 wujie shadow root 里的 image file input click
             await page.evaluate("""
             () => {
