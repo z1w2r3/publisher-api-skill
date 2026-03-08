@@ -130,38 +130,63 @@ async def set_cover(page, cover34_path: str):
         return
     log(f"[视频号] 设置封面: {cover34_path}")
 
-    # Step1: 正常点击"编辑"按钮，让封面弹窗真正打开（不用 force=True，保证 UI 可见）
-    edit_btn = page.get_by_text('编辑', exact=True).first
-    try:
-        if await edit_btn.count():
-            await edit_btn.scroll_into_view_if_needed()
-            await edit_btn.click()
-            log("[视频号] 已点击编辑按钮")
-        else:
-            await page.mouse.click(851, 252)
-            log("[视频号] 已点击编辑坐标（兜底）")
-    except Exception as e:
-        log(f"[视频号] 编辑按钮点击失败: {e}，跳过封面")
+    # Step1: 通过 JS 进入 wujie shadow root 点击 .edit-btn（封面编辑按钮）
+    # 视频号用无界(wujie)微前端，Playwright 的 get_by_text 无法穿透，需直接操作 shadow root
+    clicked = await page.evaluate("""
+    () => {
+      try {
+        const sr = document.querySelector('wujie-app') && document.querySelector('wujie-app').shadowRoot;
+        const root = sr ? sr.querySelector('html') : document;
+        if (!root) return 'no-root';
+        const btn = root.querySelector('.edit-btn');
+        if (btn && btn.offsetHeight > 0 && btn.offsetWidth > 0) {
+          btn.click();
+          return 'clicked';
+        }
+        return 'not-ready';
+      } catch(e) { return 'err:' + e.message; }
+    }
+    """)
+    log(f"[视频号] 封面编辑按钮点击: {clicked}")
+    if clicked != 'clicked':
+        log("[视频号] 编辑按钮未就绪，跳过封面")
         return
 
-    # Step2: 等弹窗动画完成，再注入文件
-    await asyncio.sleep(3)
-    inp = page.locator('input[type=file][accept*="image"]')
+    # Step2: 等弹窗动画完成，注入封面文件
+    # 弹窗打开后会新增一个 image file input（第2个 input[type=file]）
+    await asyncio.sleep(2)
+    inp = page.locator('input[type=file]').nth(1)  # 第2个：封面 input（accept image/*）
+    if not await inp.count():
+        inp = page.locator('input[type=file]').last
     if not await inp.count():
         log("[视频号] 未找到封面 input，跳过封面")
         return
     await inp.set_input_files(cover34_path)
     log("[视频号] 封面文件已注入")
 
-    # Step3: 等图片渲染完成，确认按钮变为可见后点击
-    await asyncio.sleep(4)
-    confirm_btn = page.locator('button:has-text("确认")').first
-    try:
-        await confirm_btn.wait_for(state="visible", timeout=10000)
-        await confirm_btn.click()
+    # Step3: 等图片渲染完成后用 JS 点击确认按钮
+    await asyncio.sleep(3)
+    confirmed = await page.evaluate("""
+    () => {
+      try {
+        const sr = document.querySelector('wujie-app') && document.querySelector('wujie-app').shadowRoot;
+        const root = sr ? sr.querySelector('html') : document;
+        if (!root) return 'no-root';
+        const btns = root.querySelectorAll('button');
+        for (const btn of btns) {
+          if (btn.offsetHeight > 0 && btn.innerText && btn.innerText.trim() === '\u786e\u8ba4') {
+            btn.click();
+            return 'clicked';
+          }
+        }
+        return 'not-found';
+      } catch(e) { return 'err:' + e.message; }
+    }
+    """)
+    if confirmed == 'clicked':
         log("[视频号] 封面确认完成")
-    except Exception as e:
-        log(f"[视频号] 封面确认按钮点击失败: {e}，跳过封面继续发布")
+    else:
+        log(f"[视频号] 封面确认按钮未找到({confirmed})，跳过封面继续发布")
         return
     await asyncio.sleep(2)
 
@@ -335,13 +360,28 @@ async def main():
         if not ok:
             exit_failed("视频号：视频上传超时")
 
-        # 视频上传后平台需要生成封面缩略图（显示"生成中"），等"编辑"按钮出现再继续
-        log("[视频号] 等待封面生成完成（编辑按钮出现）...")
-        try:
-            await page.get_by_text('编辑', exact=True).first.wait_for(state="visible", timeout=60000)
-            log("[视频号] 封面已生成，开始设置自定义封面")
-        except Exception:
-            log("[视频号] 等待编辑按钮超时，继续尝试")
+        # 视频上传后封面缩略图需要时间生成（会经历"生成中"→灰色→可点击的"编辑"按钮）
+        # 用 JS 轮询 wujie shadow root，等 .edit-btn 出现且 offsetHeight > 0（真正可点击）
+        log("[视频号] 等待封面生成完成（编辑按钮可点击）...")
+        edit_ready = False
+        for i in range(24):  # 最多等 60s，每 2.5s 检查一次
+            await asyncio.sleep(2.5)
+            edit_ready = await page.evaluate("""
+            () => {
+              try {
+                const sr = document.querySelector('wujie-app') && document.querySelector('wujie-app').shadowRoot;
+                const root = sr ? sr.querySelector('html') : document;
+                if (!root) return false;
+                const btn = root.querySelector('.edit-btn');
+                return !!(btn && btn.offsetHeight > 0 && btn.offsetWidth > 0);
+              } catch(e) { return false; }
+            }
+            """)
+            if edit_ready:
+                log(f"[视频号] 封面编辑按钮已就绪（{(i+1)*2.5:.0f}s）")
+                break
+        if not edit_ready:
+            log("[视频号] 等待编辑按钮超时（60s），继续尝试")
 
         # 顺序：封面 → 描述 → 短标题 → 原创 → 定时 → 发表
         await set_cover(page, args.cover34)
