@@ -152,17 +152,45 @@ async def set_cover(page, cover34_path: str):
         log("[视频号] 编辑按钮未就绪，跳过封面")
         return
 
-    # Step2: 等弹窗动画完成，注入封面文件
-    # 弹窗打开后会新增一个 image file input（第2个 input[type=file]）
+    # Step2: 等弹窗动画完成，用 expect_file_chooser 拦截文件选择框（防止 OS 弹窗出现）
+    # 原理：在 JS click input 之前注册拦截器，OS 文件选择框被 Playwright 截住，文件直接注入
     await asyncio.sleep(2)
-    inp = page.locator('input[type=file]').nth(1)  # 第2个：封面 input（accept image/*）
-    if not await inp.count():
-        inp = page.locator('input[type=file]').last
-    if not await inp.count():
-        log("[视频号] 未找到封面 input，跳过封面")
-        return
-    await inp.set_input_files(cover34_path)
-    log("[视频号] 封面文件已注入")
+    uploaded = False
+    try:
+        async with page.expect_file_chooser(timeout=6000) as fc_info:
+            # JS 触发 wujie shadow root 里的 image file input click
+            await page.evaluate("""
+            () => {
+              try {
+                const sr = document.querySelector('wujie-app') && document.querySelector('wujie-app').shadowRoot;
+                const root = sr ? sr.querySelector('html') : document;
+                const inputs = root.querySelectorAll('input[type=file]');
+                // 取 image input（第2个，accept image/*）
+                for (const inp of inputs) {
+                  if (inp.accept && inp.accept.includes('image')) { inp.click(); return; }
+                }
+                // 兜底取最后一个
+                if (inputs.length > 0) inputs[inputs.length - 1].click();
+              } catch(e) {}
+            }
+            """)
+        fc = await fc_info.value
+        await fc.set_files(cover34_path)
+        log("[视频号] 封面已上传（via file chooser 拦截）")
+        uploaded = True
+    except Exception as e:
+        log(f"[视频号] file chooser 未触发（{e}），直接注入 input")
+
+    if not uploaded:
+        await asyncio.sleep(2)
+        inp = page.locator('input[type=file]').nth(1)
+        if not await inp.count():
+            inp = page.locator('input[type=file]').last
+        if not await inp.count():
+            log("[视频号] 未找到封面 input，跳过封面")
+            return
+        await inp.set_input_files(cover34_path)
+        log("[视频号] 封面已注入（via set_input_files 兜底）")
 
     # Step3: 等图片渲染完成后用 JS 点击确认按钮
     await asyncio.sleep(3)
