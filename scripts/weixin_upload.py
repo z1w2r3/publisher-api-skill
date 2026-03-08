@@ -43,11 +43,31 @@ async def check_login_and_duplicate(page, short_title: str) -> dict:
 
 async def upload_video(page, video_path: str):
     log(f"[视频号] 上传视频: {video_path}")
-    # 在 Shadow DOM 中找 file input
-    # Playwright pierce 选择器可以穿透 shadow DOM
+    # 先等 wujie 微前端初始化完成（最多 60s），file input 才会出现
+    log("[视频号] 等待 wujie 初始化...")
+    wujie_ready = False
+    for i in range(24):  # 最多 60s，每 2.5s 检查一次
+        await asyncio.sleep(2.5)
+        has_input = await page.evaluate("""
+        () => {
+          const inp = document.querySelector('input[type="file"]');
+          if (inp) return true;
+          const sr = document.querySelector('wujie-app') && document.querySelector('wujie-app').shadowRoot;
+          if (!sr) return false;
+          return !!sr.querySelector('input[type="file"]');
+        }
+        """)
+        if has_input:
+            log(f"[视频号] wujie 已就绪，file input 可见（{(i+1)*2.5:.0f}s）")
+            wujie_ready = True
+            break
+    if not wujie_ready:
+        log("[视频号] 等待 wujie 超时（60s），尝试直接上传")
+
+    # 在 Shadow DOM 中找 file input，Pierce 选择器可穿透 shadow DOM
     try:
         inp = page.locator('input[type=file]').first
-        await inp.set_input_files(video_path, timeout=10000)
+        await inp.set_input_files(video_path, timeout=60000)
         log("[视频号] 视频文件已选择（pierce）")
         return
     except Exception as e:
