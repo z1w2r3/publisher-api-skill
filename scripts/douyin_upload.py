@@ -199,7 +199,7 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             """)
             if has:
                 break
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)  # 竖封面弹窗刚打开，canvas 初始化需要更长稳定时间
         await upload_via_btn(cover34_path, "竖封面3:4")
 
     if cover43_path and os.path.exists(cover43_path):
