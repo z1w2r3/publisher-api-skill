@@ -397,6 +397,8 @@ async def main():
     pw, browser = await connect_browser()
     try:
         page = await new_tab(browser, LIST_URL)
+        if 'login' in page.url:
+            exit_need_login("视频号（跳转到登录页）")
         result = await check_login_and_duplicate(page, args.short_title)
         if not result.get('loggedIn'):
             exit_need_login("视频号")
