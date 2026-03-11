@@ -175,7 +175,7 @@ exit code：0=成功，1=失败，2=需登录
 ```bash
 cd /Users/niuone/code/social-auto-upload && python3 \
   /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /tmp/sau-test/cookies/bilibili_uploader/account.json \
+  --cookie /Users/niuone/.openclaw/cookies/bilibili_uploader/account.json \
   --video   "~/Media/staging/{slug}/{landscape文件名，无横屏则用竖屏}" \
   --title   "{B站标题}" \
   --desc    "{B站正文内容}" \
