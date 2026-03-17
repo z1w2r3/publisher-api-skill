@@ -82,10 +82,6 @@ fail_counts   = video.get('fail_counts', {})
 
 ### Step 4: 下载素材
 
-> ⚠️ **路径规则（严格遵守）**：所有脚本的 `--video`、`--cover*` 参数必须使用 `~/Media/staging/{slug}/` 路径。
-> **绝对不能**使用 Hub API 返回的 `project_path`、`video_path`、`landscape_path` 字段作为文件路径——那是服务器上的旧路径，本机不存在。
-> 正确格式：`~/Media/staging/{slug}/2026-03-portrait.mp4`
-
 ```bash
 SLUG="{slug}"
 STAGING=~/Media/staging/$SLUG
@@ -108,11 +104,9 @@ LANDSCAPE_FILE="{landscape_path的文件名}"
 [ -n "$LANDSCAPE_FILE" ] && { [ -f "$LANDSCAPE_FILE" ] && [ $(stat -f%z "$LANDSCAPE_FILE") -gt 1000000 ] \
   || curl -sf -o "$LANDSCAPE_FILE" "$BASE/{landscape_path}" || true; }
 
-# 封面：从 API 返回的 covers 数组逐项下载，源URL用 $BASE/{cover_path}，本地保存为 basename（平铺）
-# covers 可能是 ["video/out/cover-3x4.png"] 或 ["cover-3x4.png"]，两种都处理
-for cover_path in {covers数组展开，每项一行}; do
-  local_name=$(basename "$cover_path")
-  [ -f "$local_name" ] || curl -sf -o "$local_name" "$BASE/$cover_path" || true
+# 封面
+for cover in cover-3x4.png cover-4x3.png cover-16x9.png; do
+  [ -f "$cover" ] || curl -sf -O "$BASE/$cover" || true
 done
 ```
 
@@ -175,7 +169,7 @@ exit code：0=成功，1=失败，2=需登录
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload && python3 \
   /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json \
+  --cookie /tmp/sau-test/cookies/bilibili_uploader/account.json \
   --video   "~/Media/staging/{slug}/{landscape文件名，无横屏则用竖屏}" \
   --title   "{B站标题}" \
   --desc    "{B站正文内容}" \
@@ -206,7 +200,7 @@ cd /Users/zhengweirong/code/social-auto-upload && python3 \
 
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload && python3 \
-  /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/weixin_upload.py \
+  /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
   --video       "~/Media/staging/{slug}/{portrait文件名}" \
   --short-title "{视频号短标题}" \
   --desc        "{视频号正文+话题（含#）}" \

@@ -37,13 +37,13 @@ cat ~/Media/staging/{slug}/投稿文案.md
 
 按生产规则计算每个平台的脚本参数（同 dispatcher-v3.md Step 4-5），但**不执行真实脚本**，改为调用 param_logger：
 
-脚本路径：`/Users/niuone/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py`  
+脚本路径：`/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py`  
 日志路径：`/tmp/dispatch_params.log`（每次追加，不覆盖）
 
 ### bilibili
 
 ```bash
-cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
+cd /Users/zhengweirong/code/social-auto-upload && python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
   --platform bilibili \
   --video "..." \
   --title "..." \
@@ -55,7 +55,7 @@ cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skil
 ### kuaishou
 
 ```bash
-cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
+cd /Users/zhengweirong/code/social-auto-upload && python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
   --platform kuaishou \
   --video "..." \
   --desc "..." \
@@ -66,7 +66,7 @@ cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skil
 ### weixin-channels
 
 ```bash
-cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
+cd /Users/zhengweirong/code/social-auto-upload && python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
   --platform weixin-channels \
   --video "..." \
   --short-title "..." \
@@ -78,7 +78,7 @@ cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skil
 ### douyin
 
 ```bash
-cd /Users/niuone/code/social-auto-upload && python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
+cd /Users/zhengweirong/code/social-auto-upload && python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/test/param_logger.py \
   --platform douyin \
   --video "..." \
   --title "..." \

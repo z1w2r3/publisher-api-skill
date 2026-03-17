@@ -10,7 +10,7 @@
 exit 0: 全部命中（含PENDING），exit 1: 未找到
 """
 import argparse, asyncio, json, re, sys
-sys.path.insert(0, '/Users/niuone/.openclaw/skills/publisher-api-skill/scripts')
+sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
 from cdp_base import connect_browser, safe_disconnect
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"

@@ -10,7 +10,7 @@
 exit 0: 全部命中，exit 1: 至少一个未命中
 """
 import argparse, asyncio, json, re, sys
-sys.path.insert(0, '/Users/niuone/.openclaw/skills/publisher-api-skill/scripts')
+sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
 from cdp_base import connect_browser, safe_disconnect
 
 LIST_URL = "https://cp.kuaishou.com/article/manage/video?status=1"

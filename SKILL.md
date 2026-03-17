@@ -14,7 +14,7 @@ metadata: {"openclaw":{"os":["darwin"],"emoji":"🚀"}}
 ## 脚本目录
 
 ```
-/Users/niuone/.openclaw/skills/publisher-api-skill/scripts/
+/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/
 ├── bili_upload.py      # B站 API 上传（0 tokens，纯 HTTP）
 ├── douyin_upload.py    # 抖音 CDP 脚本
 ├── ks_upload.py        # 快手 CDP 脚本
@@ -22,7 +22,7 @@ metadata: {"openclaw":{"os":["darwin"],"emoji":"🚀"}}
 └── cdp_base.py         # CDP 公共基础库
 ```
 
-**Python 解释器**: `cd /Users/niuone/code/social-auto-upload && python3`
+**Python 解释器**: `cd /Users/zhengweirong/code/social-auto-upload && python3`
 （必须在 social-auto-upload 目录下运行，否则 biliup 无法导入）
 
 ---
@@ -31,7 +31,7 @@ metadata: {"openclaw":{"os":["darwin"],"emoji":"🚀"}}
 
 | 平台 | 脚本 | 视频文件 | Cookie |
 |------|------|---------|--------|
-| bilibili | bili_upload.py | landscape（横屏） | `/Users/niuone/.openclaw/cookies/bilibili_uploader/account.json` |
+| bilibili | bili_upload.py | landscape（横屏） | `/Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json` |
 | douyin | douyin_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
 | kuaishou | ks_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
 | weixin-channels | weixin_upload.py | portrait（竖屏） | 复用 OpenClaw 浏览器登录态 |
@@ -70,9 +70,9 @@ done
 
 **B站：**
 ```bash
-cd /Users/niuone/code/social-auto-upload
-python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /Users/niuone/.openclaw/cookies/bilibili_uploader/account.json \
+cd /Users/zhengweirong/code/social-auto-upload
+python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
+  --cookie /Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json \
   --video "$STAGING/landscape.mp4" \
   --title "B站标题" \
   --desc "B站简介" \
@@ -85,8 +85,8 @@ python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.p
 
 **抖音：**
 ```bash
-cd /Users/niuone/code/social-auto-upload
-python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/douyin_upload.py \
+cd /Users/zhengweirong/code/social-auto-upload
+python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/douyin_upload.py \
   --video "$STAGING/portrait.mp4" \
   --title "抖音标题" \
   --desc "简介内容\n#话题1 #话题2" \
@@ -97,8 +97,8 @@ python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/douyin_upload
 
 **快手：**
 ```bash
-cd /Users/niuone/code/social-auto-upload
-python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/ks_upload.py \
+cd /Users/zhengweirong/code/social-auto-upload
+python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/ks_upload.py \
   --video "$STAGING/portrait.mp4" \
   --desc "内容+#话题" \
   --cover34 "$STAGING/cover-3x4.png" \
@@ -108,8 +108,8 @@ python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/ks_upload.py 
 
 **视频号：**
 ```bash
-cd /Users/niuone/code/social-auto-upload
-python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/weixin_upload.py \
+cd /Users/zhengweirong/code/social-auto-upload
+python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/weixin_upload.py \
   --video "$STAGING/portrait.mp4" \
   --short-title "短标题6-16字" \
   --desc "描述+#话题" \
@@ -164,9 +164,9 @@ curl -s -X POST 'http://192.168.50.40:3456/api/publish/complete?key=pk_publisher
 
 ```bash
 # 测试 B站上传
-cd /Users/niuone/code/social-auto-upload
-python3 /Users/niuone/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
-  --cookie /Users/niuone/.openclaw/cookies/bilibili_uploader/account.json \
+cd /Users/zhengweirong/code/social-auto-upload
+python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
+  --cookie /Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json \
   --video ~/Media/staging/0228-deer-flow/landscape.mp4 \
   --title "测试标题" --desc "测试简介" --tags "测试"
 ```
