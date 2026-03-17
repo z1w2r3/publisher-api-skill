@@ -38,7 +38,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Any, Union
 
-SAU_PATH = "/Users/zhengweirong/code/social-auto-upload"
+SAU_PATH = os.path.expanduser("~/code/social-auto-upload")
 sys.path.insert(0, SAU_PATH)
 
 from biliup.plugins.bili_webup import BiliBili, Data

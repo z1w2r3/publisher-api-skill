@@ -6,8 +6,8 @@ B站视频列表获取脚本 - 从创作者后台获取已发布视频的 bvid
 输出：
   {"bvid":"BV1xx","title":"视频标题"}
 """
-import argparse, asyncio, json, re, sys
-sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
+import argparse, asyncio, json, os, re, sys
+sys.path.insert(0, os.path.dirname(__file__))
 from cdp_base import connect_browser, safe_disconnect
 
 LIST_URL = "https://member.bilibili.com/platform/upload-manager/article"
