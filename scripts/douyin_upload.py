@@ -160,7 +160,7 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
       if (slots[0]) slots[0].click();
     }
     """)
-    await asyncio.sleep(3)
+    await asyncio.sleep(20)
 
     async def upload_via_btn(cover_path, label):
         coords = await page.evaluate("""
@@ -177,7 +177,7 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             log(f"[抖音] {label}：未找到上传封面按钮")
             return False
         try:
-            async with page.expect_file_chooser(timeout=8000) as fc_info:
+            async with page.expect_file_chooser(timeout=15000) as fc_info:
                 await page.mouse.click(coords['x'], coords['y'])
             fc = await fc_info.value
             await fc.set_files(cover_path)
@@ -186,6 +186,9 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             return True
         except Exception as e:
             log(f"[抖音] {label} 上传失败: {e}")
+            # 关闭可能残留的 OS 文件选择框
+            os.system("osascript -e 'tell application \"System Events\" to key code 53'")
+            await asyncio.sleep(0.5)
             return False
 
     if cover34_path and os.path.exists(cover34_path):
@@ -199,7 +202,7 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             """)
             if has:
                 break
-        await asyncio.sleep(3)  # 竖封面弹窗刚打开，canvas 初始化需要更长稳定时间
+        await asyncio.sleep(5)  # 竖封面弹窗刚打开，canvas 初始化需要更长稳定时间
         await upload_via_btn(cover34_path, "竖封面3:4")
 
     if cover43_path and os.path.exists(cover43_path):
@@ -221,7 +224,7 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
             """)
             if has:
                 break
-        await asyncio.sleep(1)
+        await asyncio.sleep(3)
         await upload_via_btn(cover43_path, "横封面4:3")
 
     await page.evaluate("""
