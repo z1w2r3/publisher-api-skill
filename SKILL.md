@@ -46,50 +46,34 @@ metadata: {"openclaw":{"os":["darwin"],"emoji":"🚀"}}
 PENDING=$(curl -s 'http://192.168.50.40:3456/api/publish/pending?key=pk_publisher_31d4632df15a11c58c2977f4&limit=1')
 ```
 
-### 2. 下载素材（同 fengmang-dispatcher-v2.md Step 4）
+### 2. 素材准备
 
-```bash
-SLUG="{slug}"
-STAGING=~/Media/staging/$SLUG
-mkdir -p "$STAGING" && cd "$STAGING"
-BASE="http://192.168.50.40:3456/files/{project_path去掉/Users/zhengweirong/clawd/锋芒AI/前缀}"
+> orchestrator 发来的消息已包含完整的素材路径和执行命令。
+> 本地直读时无需下载；远程模式时按消息中的 curl 命令下载到 `~/Media/staging/{slug}/`。
 
-[ -f "投稿文案.md" ] || curl -sf -O "$BASE/投稿文案.md"
-[ -f "portrait.mp4" ] && [ $(stat -f%z portrait.mp4) -gt 1000000 ] || curl -sf -o portrait.mp4 "$BASE/{video_path}"
-[ -f "landscape.mp4" ] && [ $(stat -f%z landscape.mp4) -gt 1000000 ] || curl -sf -o landscape.mp4 "$BASE/{landscape_path}" || true
-for cover in cover-3x4.png cover-4x3.png cover-16x9.png; do
-  [ -f "$cover" ] || curl -sf -O "$BASE/$cover" || true
-done
-```
+### 3. 按平台执行脚本
 
-### 3. 解析文案
-
-从 `投稿文案.md` 提取各平台文案（标题、简介、话题），拼成脚本参数。
-
-### 4. 按平台执行脚本
+> **文案参数从 `brief.json` 读取（`--brief` 参数），不需要手动解析投稿文案.md。**
+> orchestrator 消息中已给出每个平台的完整命令，直接执行即可。
 
 **B站：**
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload
-python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/bili_upload.py \
+python3 skills/publisher-api-skill/scripts/bili_upload.py \
   --cookie /Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json \
   --video "$STAGING/landscape.mp4" \
-  --title "B站标题" \
-  --desc "B站简介" \
-  --tags "标签1,标签2" \
+  --brief "$STAGING/brief.json" --platform bilibili \
   --cover43 "$STAGING/cover-4x3.png" \
   --cover169 "$STAGING/cover-16x9.png" \
-  --zone 1011 \
   --dtime "2026-03-02T12:00:00"
 ```
 
 **抖音：**
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload
-python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/douyin_upload.py \
+python3 skills/publisher-api-skill/scripts/douyin_upload.py \
   --video "$STAGING/portrait.mp4" \
-  --title "抖音标题" \
-  --desc "简介内容\n#话题1 #话题2" \
+  --brief "$STAGING/brief.json" --platform douyin \
   --cover34 "$STAGING/cover-3x4.png" \
   --cover43 "$STAGING/cover-4x3.png" \
   --dtime "2026-03-02 12:00:00"
@@ -98,24 +82,24 @@ python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/douyin_
 **快手：**
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload
-python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/ks_upload.py \
+python3 skills/publisher-api-skill/scripts/ks_upload.py \
   --video "$STAGING/portrait.mp4" \
-  --desc "内容+#话题" \
+  --brief "$STAGING/brief.json" --platform kuaishou \
   --cover34 "$STAGING/cover-3x4.png" \
-  --dtime "2026-03-02 12:00:00" \
-  --dedup-kw "内容第一句"
+  --dtime "2026-03-02 12:00:00"
 ```
 
 **视频号：**
 ```bash
 cd /Users/zhengweirong/code/social-auto-upload
-python3 /Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts/weixin_upload.py \
+python3 skills/publisher-api-skill/scripts/weixin_upload.py \
   --video "$STAGING/portrait.mp4" \
-  --short-title "短标题6-16字" \
-  --desc "描述+#话题" \
+  --brief "$STAGING/brief.json" --platform weixin-channels \
   --cover34 "$STAGING/cover-3x4.png" \
   --dtime "2026-03-02 12:00:00"
 ```
+
+> 所有脚本也支持旧的 `--title`/`--desc`/`--tags` 参数作为 fallback，但推荐用 `--brief`。
 
 ### 5. 解析脚本输出
 
