@@ -69,9 +69,22 @@ async def scrape_frame(frame):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--title', action='append', required=True)
+    parser.add_argument('--title', action='append', default=[])
     parser.add_argument('--scroll', type=int, default=3, help='滚动加载次数')
+    parser.add_argument('--brief', default='', help='brief.json 路径，从中读取视频号短标题')
+    parser.add_argument('--platform', default='weixin-channels')
     args = parser.parse_args()
+
+    # brief.json 补充标题
+    if args.brief and not args.title:
+        from cdp_base import load_brief
+        bd = load_brief(args.brief, args.platform)
+        if bd and bd.get('short_title'):
+            args.title = [bd['short_title']]
+
+    if not args.title:
+        print("FAILED error=缺少 --title 或 --brief", flush=True)
+        sys.exit(1)
 
     kws = [t[:15] for t in args.title]
     matched = {}

@@ -294,13 +294,28 @@ async def main():
     log_argv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--video",   required=True)
-    parser.add_argument("--title",   required=True)
+    parser.add_argument("--title",   default="")
     parser.add_argument("--desc",    default="")
     parser.add_argument("--tags",    default="", help="话题，逗号分隔，不含#，最多5个")
     parser.add_argument("--cover34", default="")
     parser.add_argument("--cover43", default="")
     parser.add_argument("--dtime",   default="")
+    parser.add_argument("--brief",   default="", help="brief.json 路径")
+    parser.add_argument("--platform", default="douyin")
     args = parser.parse_args()
+
+    # brief.json 优先
+    if args.brief:
+        from cdp_base import load_brief
+        bd = load_brief(args.brief, args.platform)
+        if bd:
+            args.title = args.title or bd.get('title', '')
+            args.desc = args.desc or bd.get('desc', '')
+            if not args.tags and bd.get('tags'):
+                args.tags = ','.join(bd['tags'])
+
+    if not args.title:
+        exit_failed("缺少 title（--title 或 --brief）")
 
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None
 

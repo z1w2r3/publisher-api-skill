@@ -103,6 +103,20 @@ end tell
     asyncio.get_event_loop().run_until_complete(asyncio.sleep(2))
 
 
+def load_brief(brief_path: str, platform: str) -> dict:
+    """从 brief.json 加载指定平台的文案数据，返回 dict（空 dict 表示无数据）"""
+    import json
+    if not brief_path or not os.path.exists(brief_path):
+        return {}
+    try:
+        with open(brief_path, 'r', encoding='utf-8') as f:
+            brief = json.load(f)
+        return brief.get(platform, {})
+    except Exception as e:
+        print(f"[brief] 加载失败: {e}", flush=True)
+        return {}
+
+
 def log(msg: str):
     print(msg, flush=True)
 

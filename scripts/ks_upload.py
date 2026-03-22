@@ -265,7 +265,18 @@ async def main():
     parser.add_argument("--cover34", default="")
     parser.add_argument("--dtime", default="")
     parser.add_argument("--dedup-kw", default="")
+    parser.add_argument("--brief", default="", help="brief.json 路径")
+    parser.add_argument("--platform", default="kuaishou")
     args = parser.parse_args()
+
+    # brief.json 优先
+    if args.brief:
+        from cdp_base import load_brief
+        bd = load_brief(args.brief, args.platform)
+        if bd:
+            args.desc = args.desc or bd.get('desc', '')
+            if not args.dedup_kw and bd.get('dedup_kw'):
+                args.dedup_kw = bd['dedup_kw']
 
     dedup_kw = args.dedup_kw or (args.desc.split('\n')[0] if args.desc else "")
 

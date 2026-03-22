@@ -49,6 +49,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cookie", default=COOKIE_PATH)
     parser.add_argument("--bvid", action="append", required=True)
+    parser.add_argument("--brief", default="", help="brief.json 路径（B站用 bvid，此参数保留备用）")
+    parser.add_argument("--platform", default="bilibili")
     args = parser.parse_args()
 
     cookie_str = load_cookie(args.cookie)

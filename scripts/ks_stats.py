@@ -55,9 +55,22 @@ async def scrape_page(page):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--title', action='append', required=True)
+    parser.add_argument('--title', action='append', default=[])
     parser.add_argument('--pages', type=int, default=3)
+    parser.add_argument('--brief', default='', help='brief.json 路径，从中读取快手描述前15字作为匹配关键词')
+    parser.add_argument('--platform', default='kuaishou')
     args = parser.parse_args()
+
+    # brief.json 补充：快手没有标题，用 desc 前15字
+    if args.brief and not args.title:
+        from cdp_base import load_brief
+        bd = load_brief(args.brief, args.platform)
+        if bd and bd.get('desc'):
+            args.title = [bd['desc'].split('\n')[0][:30]]
+
+    if not args.title:
+        print("FAILED error=缺少 --title 或 --brief", flush=True)
+        sys.exit(1)
 
     kws = [t[:15] for t in args.title]
     matched = {}
