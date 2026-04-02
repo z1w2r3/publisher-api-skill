@@ -88,15 +88,33 @@ async def fill_desc(page, desc: str):
 async def set_cover(page, cover_path: str):
     """
     快手封面正确流程（实机调试验证）：
-    1. 点封面黑块（cover-full-editor）打开弹窗
-    2. 点"上传封面" tab
-    3. expect_file_chooser + 点"上传图片"按钮
-    4. 点确认
+    1. 等封面编辑区就绪
+    2. 点封面黑块（cover-full-editor）打开弹窗
+    3. 点"上传封面" tab
+    4. expect_file_chooser + 点"上传图片"按钮（失败自动重试）
+    5. 点确认
     """
     if not cover_path or not os.path.exists(cover_path):
         log("[快手] 无封面，跳过")
         return
     log(f"[快手] 上传封面: {cover_path}")
+
+    # 等封面编辑区就绪（视频处理完后才出现）
+    log("[快手] 等待封面编辑区就绪...")
+    cover_ready = False
+    for i in range(60):  # 最多 120s
+        await asyncio.sleep(2)
+        cover_ready = await page.evaluate("""
+        () => {
+          const el = document.querySelector('[class*=cover-full-editor]');
+          return !!(el && el.offsetHeight > 0 && el.offsetWidth > 0);
+        }
+        """)
+        if cover_ready:
+            log(f"[快手] 封面编辑区就绪（{(i+1)*2}s）")
+            break
+    if not cover_ready:
+        log("[快手] 等待封面编辑区超时（120s），继续尝试")
 
     # 滚到封面区
     await page.evaluate("""
@@ -105,13 +123,29 @@ async def set_cover(page, cover_path: str):
       if (el) el.scrollIntoView({block: 'center'});
     }
     """)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1)
 
     # Step1: 点封面黑块打开弹窗
     await page.click('[class*=cover-full-editor]')
-    await asyncio.sleep(1.5)
+    await asyncio.sleep(3)
 
-    # Step2: 点"上传封面" tab
+    # Step2: 点"上传封面" tab，轮询等 tab 可见
+    tab_ready = False
+    for i in range(30):  # 最多 60s
+        await asyncio.sleep(2)
+        tab_ready = await page.evaluate("""
+        () => !!([...document.querySelectorAll('*')]
+          .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0 && e.offsetHeight < 60))
+        """)
+        if tab_ready:
+            log(f"[快手] 上传封面 tab 就绪（{(i+1)*2}s）")
+            break
+    if not tab_ready:
+        log("[快手] 上传封面 tab 未出现，跳过封面")
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(1)
+        return
+
     await page.evaluate("""
     () => {
       const tab = [...document.querySelectorAll('*')]
@@ -119,24 +153,48 @@ async def set_cover(page, cover_path: str):
       if (tab) tab.click();
     }
     """)
-    await asyncio.sleep(1)
+    await asyncio.sleep(3)
 
-    # Step3: expect_file_chooser + 点"上传图片"按钮
-    try:
-        async with page.expect_file_chooser(timeout=5000) as fc_info:
-            await page.evaluate("""
-            () => {
-              const btn = [...document.querySelectorAll('button')]
-                .find(e => e.textContent.trim() === '上传图片' && e.offsetHeight > 0);
-              if (btn) btn.click();
-            }
+    # Step3: expect_file_chooser + 点"上传图片"按钮（带重试）
+    uploaded = False
+    for attempt in range(2):
+        # 等"上传图片"按钮出现
+        btn_ready = False
+        for i in range(15):  # 最多 30s
+            await asyncio.sleep(2)
+            btn_ready = await page.evaluate("""
+            () => !!([...document.querySelectorAll('button')]
+              .find(e => e.textContent.trim() === '上传图片' && e.offsetHeight > 0))
             """)
-        fc = await fc_info.value
-        await fc.set_files(cover_path)
-        log("[快手] 封面已上传")
-        await asyncio.sleep(3)
-    except Exception as e:
-        log(f"[快手] 封面上传失败: {e}")
+            if btn_ready:
+                break
+        if not btn_ready:
+            log(f"[快手] 上传图片按钮未出现（第{attempt+1}次）")
+            continue
+
+        await asyncio.sleep(2)  # 按钮出现后等稳定
+        try:
+            async with page.expect_file_chooser(timeout=15000) as fc_info:
+                await page.evaluate("""
+                () => {
+                  const btn = [...document.querySelectorAll('button')]
+                    .find(e => e.textContent.trim() === '上传图片' && e.offsetHeight > 0);
+                  if (btn) btn.click();
+                }
+                """)
+            fc = await fc_info.value
+            await fc.set_files(cover_path)
+            log(f"[快手] 封面已上传（第{attempt+1}次）")
+            await asyncio.sleep(5)  # 等封面渲染预览
+            uploaded = True
+            break
+        except Exception as e:
+            log(f"[快手] 封面上传失败（第{attempt+1}次）: {e}")
+            if attempt < 1:
+                await asyncio.sleep(3)
+
+    if not uploaded:
+        log("[快手] 封面上传最终失败，跳过封面")
         await page.keyboard.press("Escape")
         await asyncio.sleep(1)
         return
@@ -265,18 +323,7 @@ async def main():
     parser.add_argument("--cover34", default="")
     parser.add_argument("--dtime", default="")
     parser.add_argument("--dedup-kw", default="")
-    parser.add_argument("--brief", default="", help="brief.json 路径")
-    parser.add_argument("--platform", default="kuaishou")
     args = parser.parse_args()
-
-    # brief.json 优先
-    if args.brief:
-        from cdp_base import load_brief
-        bd = load_brief(args.brief, args.platform)
-        if bd:
-            args.desc = args.desc or bd.get('desc', '')
-            if not args.dedup_kw and bd.get('dedup_kw'):
-                args.dedup_kw = bd['dedup_kw']
 
     dedup_kw = args.dedup_kw or (args.desc.split('\n')[0] if args.desc else "")
 

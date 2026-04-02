@@ -9,8 +9,8 @@
   FAILED title_kw=xxx error=...
 exit 0: 全部命中（含PENDING），exit 1: 未找到
 """
-import argparse, asyncio, json, os, re, sys
-sys.path.insert(0, os.path.dirname(__file__))
+import argparse, asyncio, json, re, sys
+sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
 from cdp_base import connect_browser, safe_disconnect
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"
@@ -69,22 +69,9 @@ async def scrape_frame(frame):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--title', action='append', default=[])
+    parser.add_argument('--title', action='append', required=True)
     parser.add_argument('--scroll', type=int, default=3, help='滚动加载次数')
-    parser.add_argument('--brief', default='', help='brief.json 路径，从中读取视频号短标题')
-    parser.add_argument('--platform', default='weixin-channels')
     args = parser.parse_args()
-
-    # brief.json 补充标题
-    if args.brief and not args.title:
-        from cdp_base import load_brief
-        bd = load_brief(args.brief, args.platform)
-        if bd and bd.get('short_title'):
-            args.title = [bd['short_title']]
-
-    if not args.title:
-        print("FAILED error=缺少 --title 或 --brief", flush=True)
-        sys.exit(1)
 
     kws = [t[:15] for t in args.title]
     matched = {}

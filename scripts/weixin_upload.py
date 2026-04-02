@@ -384,24 +384,11 @@ async def main():
     log_argv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=True)
-    parser.add_argument("--short-title", default="")
+    parser.add_argument("--short-title", required=True)
     parser.add_argument("--desc", default="")
     parser.add_argument("--cover34", default="")
     parser.add_argument("--dtime", default="")
-    parser.add_argument("--brief", default="", help="brief.json 路径")
-    parser.add_argument("--platform", default="weixin-channels")
     args = parser.parse_args()
-
-    # brief.json 优先
-    if args.brief:
-        from cdp_base import load_brief
-        bd = load_brief(args.brief, args.platform)
-        if bd:
-            args.short_title = args.short_title or bd.get('short_title', '')
-            args.desc = args.desc or bd.get('desc', '')
-
-    if not args.short_title:
-        exit_failed("缺少 short-title（--short-title 或 --brief）")
 
     # 启动前先关掉可能残留的 OS 文件选择框（偶发：set_input_files 触发真实弹窗）
     os.system("osascript -e 'tell application \"System Events\" to key code 53'")

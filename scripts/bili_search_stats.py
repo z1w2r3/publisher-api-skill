@@ -9,11 +9,11 @@ B站数据回收脚本（通过标题搜索）
   FAILED title_kw=xxx error=...
 exit 0: 全部成功，exit 1: 至少一个失败
 """
-import argparse, asyncio, json, os, re, sys
-sys.path.insert(0, os.path.dirname(__file__))
+import argparse, asyncio, json, re, sys
+sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
 from cdp_base import connect_browser, safe_disconnect
 
-COOKIE_PATH = os.path.expanduser("~/.openclaw/cookies/bilibili_uploader/account.json")
+COOKIE_PATH = "/Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json"
 LIST_URL = "https://member.bilibili.com/platform/upload-manager/article"
 
 # 匹配已发布视频：标题...BVxxxxx...播放量

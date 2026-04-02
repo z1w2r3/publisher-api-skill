@@ -148,6 +148,25 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
         log("[抖音] 无封面，跳过")
         return
 
+    # 等待视频处理完毕（封面预览帧生成），轮询"选择封面"按钮可点击
+    log("[抖音] 等待视频处理完成，封面按钮可点击...")
+    cover_btn_ready = False
+    for i in range(60):  # 最多 120s，每 2s 检查
+        await asyncio.sleep(2)
+        cover_btn_ready = await page.evaluate("""
+        () => {
+          const el = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.trim() === '选择封面'
+              && e.offsetHeight > 0 && e.offsetHeight < 60);
+          return !!el;
+        }
+        """)
+        if cover_btn_ready:
+            log(f"[抖音] 封面按钮就绪（{(i+1)*2}s）")
+            break
+    if not cover_btn_ready:
+        log("[抖音] 等待封面按钮超时（120s），继续尝试")
+
     log("[抖音] 打开封面弹窗")
     await page.evaluate("""
     () => {
@@ -160,49 +179,64 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
       if (slots[0]) slots[0].click();
     }
     """)
-    await asyncio.sleep(20)
+    await asyncio.sleep(5)  # 弹窗打开动画 + canvas 初始化
 
-    async def upload_via_btn(cover_path, label):
-        coords = await page.evaluate("""
-        () => {
-          const el = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.trim() === '上传封面'
-              && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60);
-          if (!el) return null;
-          const r = el.getBoundingClientRect();
-          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-        }
-        """)
-        if not coords:
-            log(f"[抖音] {label}：未找到上传封面按钮")
-            return False
-        try:
-            async with page.expect_file_chooser(timeout=15000) as fc_info:
-                await page.mouse.click(coords['x'], coords['y'])
-            fc = await fc_info.value
-            await fc.set_files(cover_path)
-            log(f"[抖音] {label} 上传成功")
-            await asyncio.sleep(3)
-            return True
-        except Exception as e:
-            log(f"[抖音] {label} 上传失败: {e}")
-            # 关闭可能残留的 OS 文件选择框
-            os.system("osascript -e 'tell application \"System Events\" to key code 53'")
-            await asyncio.sleep(0.5)
-            return False
+    # JS 检测"上传封面"按钮是否可见
+    CHECK_UPLOAD_BTN_JS = """
+    () => !!([...document.querySelectorAll('*')]
+      .find(e => e.textContent.trim() === '上传封面'
+        && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60))
+    """
+
+    GET_UPLOAD_BTN_COORDS_JS = """
+    () => {
+      const el = [...document.querySelectorAll('*')]
+        .find(e => e.textContent.trim() === '上传封面'
+          && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }
+    """
+
+    async def wait_upload_btn(timeout_s=60, label=""):
+        """轮询等"上传封面"按钮出现，最多 timeout_s 秒"""
+        for i in range(timeout_s // 2):
+            await asyncio.sleep(2)
+            has = await page.evaluate(CHECK_UPLOAD_BTN_JS)
+            if has:
+                log(f"[抖音] {label}上传封面按钮就绪（{(i+1)*2}s）")
+                return True
+        log(f"[抖音] {label}等待上传封面按钮超时（{timeout_s}s）")
+        return False
+
+    async def upload_via_btn(cover_path, label, max_retries=2):
+        """上传封面，失败自动重试"""
+        for attempt in range(max_retries):
+            coords = await page.evaluate(GET_UPLOAD_BTN_COORDS_JS)
+            if not coords:
+                log(f"[抖音] {label}：未找到上传封面按钮（第{attempt+1}次）")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+                continue
+            try:
+                async with page.expect_file_chooser(timeout=15000) as fc_info:
+                    await page.mouse.click(coords['x'], coords['y'])
+                fc = await fc_info.value
+                await fc.set_files(cover_path)
+                log(f"[抖音] {label} 上传成功")
+                # 等封面渲染预览完成
+                await asyncio.sleep(5)
+                return True
+            except Exception as e:
+                log(f"[抖音] {label} 上传失败（第{attempt+1}次）: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+        return False
 
     if cover34_path and os.path.exists(cover34_path):
-        # 等待封面弹窗内部按钮稳定（页面渲染需要时间）
-        for _ in range(10):
-            await asyncio.sleep(1)
-            has = await page.evaluate("""
-            () => !!([...document.querySelectorAll('*')]
-              .find(e => e.textContent.trim() === '上传封面'
-                && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60))
-            """)
-            if has:
-                break
-        await asyncio.sleep(5)  # 竖封面弹窗刚打开，canvas 初始化需要更长稳定时间
+        await wait_upload_btn(timeout_s=60, label="竖封面 ")
+        await asyncio.sleep(5)  # canvas 初始化稳定时间
         await upload_via_btn(cover34_path, "竖封面3:4")
 
     if cover43_path and os.path.exists(cover43_path):
@@ -214,17 +248,8 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
           if (btn) btn.click();
         }
         """)
-        # 轮询等"上传封面"按钮重新出现（canvas 切换加载）
-        for _ in range(10):
-            await asyncio.sleep(1)
-            has = await page.evaluate("""
-            () => !!([...document.querySelectorAll('*')]
-              .find(e => e.textContent.trim() === '上传封面'
-                && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60))
-            """)
-            if has:
-                break
-        await asyncio.sleep(3)
+        await wait_upload_btn(timeout_s=60, label="横封面 ")
+        await asyncio.sleep(5)  # canvas 切换后同样需要稳定时间
         await upload_via_btn(cover43_path, "横封面4:3")
 
     await page.evaluate("""
@@ -294,28 +319,13 @@ async def main():
     log_argv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--video",   required=True)
-    parser.add_argument("--title",   default="")
+    parser.add_argument("--title",   required=True)
     parser.add_argument("--desc",    default="")
     parser.add_argument("--tags",    default="", help="话题，逗号分隔，不含#，最多5个")
     parser.add_argument("--cover34", default="")
     parser.add_argument("--cover43", default="")
     parser.add_argument("--dtime",   default="")
-    parser.add_argument("--brief",   default="", help="brief.json 路径")
-    parser.add_argument("--platform", default="douyin")
     args = parser.parse_args()
-
-    # brief.json 优先
-    if args.brief:
-        from cdp_base import load_brief
-        bd = load_brief(args.brief, args.platform)
-        if bd:
-            args.title = args.title or bd.get('title', '')
-            args.desc = args.desc or bd.get('desc', '')
-            if not args.tags and bd.get('tags'):
-                args.tags = ','.join(bd['tags'])
-
-    if not args.title:
-        exit_failed("缺少 title（--title 或 --brief）")
 
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None
 

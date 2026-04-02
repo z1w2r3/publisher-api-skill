@@ -38,7 +38,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from typing import Any, Union
 
-SAU_PATH = os.path.expanduser("~/code/social-auto-upload")
+SAU_PATH = "/Users/zhengweirong/code/social-auto-upload"
 sys.path.insert(0, SAU_PATH)
 
 from biliup.plugins.bili_webup import BiliBili, Data
@@ -74,7 +74,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cookie", required=True)
     parser.add_argument("--video", required=True)
-    parser.add_argument("--title", default="")
+    parser.add_argument("--title", required=True)
     parser.add_argument("--desc", default="")
     parser.add_argument("--tags", default="")
     parser.add_argument("--cover43", default="", help="4:3封面路径（主封面）")
@@ -82,24 +82,7 @@ def main():
     parser.add_argument("--zone", default="1011", help="新版分区ID，默认1011=人工智能")
     parser.add_argument("--tid", default="21", help="旧版分区占位，默认21")
     parser.add_argument("--dtime", default="", help="定时发布 ISO8601，如 2026-03-02T17:00:00")
-    parser.add_argument("--brief", default="", help="brief.json 路径，优先于 --title/--desc/--tags")
-    parser.add_argument("--platform", default="bilibili", help="brief.json 中的平台 key")
     args = parser.parse_args()
-
-    # brief.json 优先覆盖命令行参数
-    if args.brief:
-        from cdp_base import load_brief
-        bd = load_brief(args.brief, args.platform)
-        if bd:
-            args.title = args.title or bd.get('title', '')
-            args.desc = args.desc or bd.get('desc', '')
-            if not args.tags and bd.get('tags'):
-                args.tags = ','.join(bd['tags'])
-            args.zone = str(bd.get('zone', args.zone))
-
-    if not args.title:
-        print("FAILED error=缺少 title（--title 或 --brief）", flush=True)
-        sys.exit(1)
 
     raw_cookie, cookie_data = load_cookie(args.cookie)
     print(f"[Cookie] DedeUserID={cookie_data.get('DedeUserID', '?')}", flush=True)
