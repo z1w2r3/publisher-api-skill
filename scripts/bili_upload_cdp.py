@@ -312,65 +312,67 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 先上传 4:3 封面 - 先确保在4:3区域（点击"首页推荐"标签）
+    # 先上传 4:3 封面 - 确保在4:3区域（点击"首页推荐"标签）
     if cover43_path and os.path.exists(cover43_path):
         log("[B站] 切换到4:3封面区域")
         await page.evaluate("""
         () => {
-          // 点击"首页推荐"标签切换到4:3
-          const tabs = [...document.querySelectorAll('*')]
-            .filter(e => e.textContent.trim() === '首页推荐' && e.offsetHeight > 0);
-          // 找高度较小的那个（标签按钮）
-          const tab = tabs.find(e => e.offsetHeight < 50) || tabs[0];
+          // 找顶部标签栏中的"首页推荐"按钮
+          const tabs = [...document.querySelectorAll('div, span, button')]
+            .filter(e => e.textContent.trim() === '首页推荐' && e.offsetHeight > 20 && e.offsetHeight < 60);
+          // 找在页面顶部区域的（y坐标较小）
+          const topTabs = tabs.filter(e => e.getBoundingClientRect().y < 200);
+          const tab = topTabs[0] || tabs[0];
           if (tab) {
             tab.click();
             console.log('clicked 首页推荐 tab');
-            return 'switched to 4:3';
           }
-          return 'not found';
         }
         """)
-        await asyncio.sleep(10)
-        # 验证当前区域
-        current = await page.evaluate("""
+        await asyncio.sleep(3)
+        # 验证当前区域 - 检查4:3区域是否有图片
+        has43 = await page.evaluate("""
         () => {
-          const active = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('首页推荐封面') && getComputedStyle(e).fontWeight > 400);
-          return active ? '4:3' : 'unknown';
+          const section = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('首页推荐封面') && e.textContent.includes('4:3'));
+          const img = section?.closest('div')?.querySelector('img[src*="bfs"], img[src*="http"]');
+          return !!img;
         }
         """)
-        log(f"[B站] 当前封面区域: {current}")
-        await upload_cover(cover43_path, "4:3 封面")
+        log(f"[B站] 4:3区域已有封面: {has43}")
+        if not has43:
+            await upload_cover(cover43_path, "4:3 封面")
 
     # 再上传 16:9 封面 - 切换到16:9区域
     if cover169_path and os.path.exists(cover169_path):
         log("[B站] 切换到16:9封面区域")
         await page.evaluate("""
         () => {
-          // 点击"个人空间"标签切换到16:9
-          const tabs = [...document.querySelectorAll('*')]
-            .filter(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0);
-          // 找高度较小的那个（标签按钮）
-          const tab = tabs.find(e => e.offsetHeight < 50) || tabs[0];
+          // 找顶部标签栏中的"个人空间"按钮
+          const tabs = [...document.querySelectorAll('div, span, button')]
+            .filter(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 20 && e.offsetHeight < 60);
+          // 找在页面顶部区域的（y坐标较小）
+          const topTabs = tabs.filter(e => e.getBoundingClientRect().y < 200);
+          const tab = topTabs[0] || tabs[0];
           if (tab) {
             tab.click();
             console.log('clicked 个人空间 tab');
-            return 'switched to 16:9';
           }
-          return 'not found';
         }
         """)
-        await asyncio.sleep(10)
-        # 验证当前区域
-        current = await page.evaluate("""
+        await asyncio.sleep(3)
+        # 验证当前区域 - 检查16:9区域是否有图片
+        has169 = await page.evaluate("""
         () => {
-          const active = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间封面') && getComputedStyle(e).fontWeight > 400);
-          return active ? '16:9' : 'unknown';
+          const section = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
+          const img = section?.closest('div')?.querySelector('img[src*="bfs"], img[src*="http"]');
+          return !!img;
         }
         """)
-        log(f"[B站] 当前封面区域: {current}")
-        await upload_cover(cover169_path, "16:9 封面")
+        log(f"[B站] 16:9区域已有封面: {has169}")
+        if not has169:
+            await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
     await page.evaluate("""
