@@ -349,48 +349,54 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
     # 上传 16:9 封面 - 必须切换到16:9区域
     if cover169_path and os.path.exists(cover169_path):
         log("[B站] 切换到16:9封面区域")
-        # 点击底部切换标签中的"个人空间"（不是区域标题）
+        
+        # 方法：点击右上角"个人空间"标签按钮（与"首页推荐"并排）
         try:
-            # 方法1：找所有包含"个人空间"的按钮/span，选最后一个（通常在底部）
-            all_tabs = await page.locator('text=个人空间').all()
-            if len(all_tabs) >= 2:
-                # 有多个，点击最后一个（底部切换标签）
-                await all_tabs[-1].click(timeout=5000)
-                log("[B站] 已点击底部 个人空间 标签")
-            else:
-                # 只有一个，使用 first
-                tab_169 = page.locator('text=个人空间').first
-                await tab_169.click(timeout=5000)
-                log("[B站] 已点击 个人空间 标签")
-        except Exception as e:
-            log(f"[B站] 点击个人空间标签失败: {e}，尝试 JS 方式")
-            # JS 方式：找底部区域的按钮
+            # 找右上角标签栏中的"个人空间"按钮
+            # 通常是横向排列的两个按钮之一
             await page.evaluate("""
             () => {
-              // 找所有包含"个人空间"的元素
-              const all = [...document.querySelectorAll('*')].filter(e => e.textContent.trim() === '个人空间');
-              // 点击最后一个（通常是底部标签）
-              if (all.length > 0) {
-                const last = all[all.length - 1];
-                last.click();
-                console.log('clicked last 个人空间 element');
+              // 找所有可能是标签按钮的元素
+              const candidates = [...document.querySelectorAll('button, div, span')]
+                .filter(e => e.textContent.trim() === '个人空间');
+              // 找在页面右上角的（x坐标较大，y坐标较小）
+              const rightTopOnes = candidates.filter(e => {
+                const rect = e.getBoundingClientRect();
+                return rect.x > window.innerWidth * 0.7 && rect.y < 200;
+              });
+              // 点击第一个匹配右上角区域的
+              if (rightTopOnes.length > 0) {
+                rightTopOnes[0].click();
+                console.log('clicked right-top 个人空间 tab');
+              } else if (candidates.length > 0) {
+                // 备选：点击最后一个
+                candidates[candidates.length - 1].click();
+                console.log('clicked fallback 个人空间 tab');
               }
             }
             """)
+            log("[B站] 已点击右上角 个人空间 标签")
+        except Exception as e:
+            log(f"[B站] 点击个人空间标签失败: {e}")
         
         await asyncio.sleep(3)
         
-        # 验证当前是否在 16:9 区域
+        # 验证当前是否在 16:9 区域 - 检查16:9区域是否有"上传封面"按钮
         in_169_area = await page.evaluate("""
         () => {
-          const section = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间封面（16:9）'));
-          if (!section) return false;
-          const rect = section.getBoundingClientRect();
+          // 找"个人空间封面（16:9）"区域标题
+          const title16 = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
+          if (!title16) return false;
+          const titleRect = title16.getBoundingClientRect();
+          // 在该标题下方找"上传封面"按钮
           const uploadBtn = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.trim() === '上传封面' && 
-              e.getBoundingClientRect().top > rect.top && 
-              e.getBoundingClientRect().top < rect.bottom);
+            .find(e => {
+              if (e.textContent.trim() !== '上传封面') return false;
+              const rect = e.getBoundingClientRect();
+              // 按钮在标题下方
+              return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 300;
+            });
           return !!uploadBtn;
         }
         """)
