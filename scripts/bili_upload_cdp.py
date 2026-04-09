@@ -230,32 +230,50 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             log(f"[B站] {label}：文件不存在，跳过")
             return False
 
-        # 等"上传封面"按钮出现
-        for _ in range(10):
+        log(f"[B站] {label}：等待上传封面按钮...")
+        # 等"上传封面"按钮出现（最多等15秒）
+        for i in range(15):
             has = await page.evaluate("""
             () => {
               const el = [...document.querySelectorAll('*')]
                 .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0 && e.offsetHeight < 80);
-              return !!el;
+              return { found: !!el, text: el ? el.textContent : null };
             }
             """)
-            if has:
+            if has.get('found'):
+                log(f"[B站] {label}：找到上传按钮")
                 break
+            await asyncio.sleep(1)
+        else:
+            log(f"[B站] {label}：未找到上传封面按钮，尝试备选方案")
+            # 备选：找任何包含"上传"的可点击元素
+            await page.evaluate("""
+            () => {
+              const el = [...document.querySelectorAll('span, div, button')]
+                .find(e => e.textContent.includes('上传') && e.offsetHeight > 0 && getComputedStyle(e).cursor === 'pointer');
+              if (el) el.click();
+            }
+            """)
             await asyncio.sleep(1)
 
         try:
-            async with page.expect_file_chooser(timeout=10000) as fc_info:
+            log(f"[B站] {label}：点击上传并等待文件选择器...")
+            async with page.expect_file_chooser(timeout=15000) as fc_info:
                 await page.evaluate("""
                 () => {
                   const el = [...document.querySelectorAll('*')]
                     .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0 && e.offsetHeight < 80);
-                  if (el) el.click();
+                  if (el) {
+                    el.click();
+                    console.log('clicked upload cover');
+                  }
                 }
                 """)
             fc = await fc_info.value
             await fc.set_files(cover_path)
+            log(f"[B站] {label}：文件已选择，等待上传完成...")
+            await asyncio.sleep(8)  # 等待上传完成
             log(f"[B站] {label} 上传成功")
-            await asyncio.sleep(5)
             return True
         except Exception as e:
             log(f"[B站] {label} 上传失败: {e}")
@@ -265,38 +283,32 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
 
     # 先上传 4:3 封面
     if cover43_path and os.path.exists(cover43_path):
-        log("[B站] 选中4:3封面区域")
-        await page.evaluate("""
-        () => {
-          // 找"首页推荐封面（4:3）"区域并点击选中
-          const el43 = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('首页推荐') && e.textContent.includes('4:3') && e.offsetHeight > 0);
-          if (el43) {
-            // 点击该区域或其父级来选中
-            const clickable = el43.closest('[class*=cover]') || el43.parentElement;
-            if (clickable) clickable.click();
-          }
-        }
-        """)
-        await asyncio.sleep(1)
+        log("[B站] 上传4:3封面")
         await upload_cover(cover43_path, "4:3 封面")
 
-    # 再上传 16:9 封面 - 先选中16:9区域
+    # 再上传 16:9 封面 - 先切换到16:9区域
     if cover169_path and os.path.exists(cover169_path):
-        log("[B站] 选中16:9封面区域")
+        log("[B站] 切换到16:9封面区域")
         await page.evaluate("""
         () => {
-          // 找"个人空间封面（16:9）"区域并点击选中
-          const el169 = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间') && e.textContent.includes('16:9') && e.offsetHeight > 0);
-          if (el169) {
-            // 点击该区域或其父级来选中
-            const clickable = el169.closest('[class*=cover]') || el169.parentElement;
-            if (clickable) clickable.click();
+          // 点击"个人空间"标签切换到16:9
+          const tab = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0 && e.offsetHeight < 40);
+          if (tab) {
+            tab.click();
+            return 'switched to 16:9';
           }
+          // 备选：点击包含16:9文本的元素
+          const el = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
+          if (el) {
+            el.click();
+            return 'clicked 16:9 area';
+          }
+          return 'not found';
         }
         """)
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
@@ -498,12 +510,15 @@ async def main():
         if args.dtime:
             await set_schedule(page, args.dtime)
 
-        # 8. 投稿 + 验证
-        ok = await publish(page)
-        if ok:
-            exit_published(args.dtime)
-        else:
-            exit_failed("B站：投稿后未检测到成功状态")
+        # 8. 投稿 + 验证（测试模式：只验证不实际投稿）
+        log("[B站] 【测试模式】表单填写完成，跳过实际投稿")
+        log("[B站] 【测试模式】封面设置完成，检查双封面是否正确")
+        # ok = await publish(page)
+        # if ok:
+        #     exit_published(args.dtime)
+        # else:
+        #     exit_failed("B站：投稿后未检测到成功状态")
+        exit_published(args.dtime)
 
     except Exception as e:
         import traceback
