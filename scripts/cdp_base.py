@@ -135,3 +135,15 @@ def exit_need_login(platform: str):
 def exit_failed(reason: str):
     print(f"FAILED error={reason}", flush=True)
     sys.exit(1)
+
+
+def load_brief(brief_path: str, platform: str) -> dict:
+    """从 brief.json 加载指定平台的配置"""
+    try:
+        import json
+        with open(brief_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get(platform, {})
+    except Exception as e:
+        print(f"[WARN] 加载 brief.json 失败: {e}", flush=True)
+        return {}
