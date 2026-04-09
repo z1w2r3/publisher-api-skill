@@ -312,67 +312,74 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 先上传 4:3 封面 - 确保在4:3区域（点击"首页推荐"标签）
+    # 上传 4:3 封面 - 先确保在4:3区域
     if cover43_path and os.path.exists(cover43_path):
-        log("[B站] 切换到4:3封面区域")
-        await page.evaluate("""
+        log("[B站] 确保在4:3封面区域")
+        # 点击"首页推荐"标签（使用 Playwright locator 更可靠）
+        try:
+            # 找文本为"首页推荐"的元素，通常有两个（标签 + 区域标题），点击第一个
+            tab_43 = page.locator('text=首页推荐').first
+            await tab_43.click(timeout=5000)
+            log("[B站] 已点击 首页推荐 标签")
+        except:
+            log("[B站] 点击首页推荐标签失败，尝试 JS 方式")
+            await page.evaluate("() => { document.querySelector('text=首页推荐')?.click(); }")
+        
+        await asyncio.sleep(2)
+        
+        # 验证当前是否在 4:3 区域（检查是否显示了 4:3 的"上传封面"按钮或已有封面）
+        in_43_area = await page.evaluate("""
         () => {
-          // 找顶部标签栏中的"首页推荐"按钮
-          const tabs = [...document.querySelectorAll('div, span, button')]
-            .filter(e => e.textContent.trim() === '首页推荐' && e.offsetHeight > 20 && e.offsetHeight < 60);
-          // 找在页面顶部区域的（y坐标较小）
-          const topTabs = tabs.filter(e => e.getBoundingClientRect().y < 200);
-          const tab = topTabs[0] || tabs[0];
-          if (tab) {
-            tab.click();
-            console.log('clicked 首页推荐 tab');
-          }
-        }
-        """)
-        await asyncio.sleep(3)
-        # 验证当前区域 - 检查4:3区域是否有图片
-        has43 = await page.evaluate("""
-        () => {
+          // 检查4:3区域是否激活（看是否有img或者上传按钮在4:3区域内）
           const section = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('首页推荐封面') && e.textContent.includes('4:3'));
-          const img = section?.closest('div')?.querySelector('img[src*="bfs"], img[src*="http"]');
-          return !!img;
+            .find(e => e.textContent.includes('首页推荐封面（4:3）'));
+          if (!section) return false;
+          const rect = section.getBoundingClientRect();
+          // 检查该区域是否有上传按钮或图片
+          const uploadBtn = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.trim() === '上传封面' && 
+              e.getBoundingClientRect().top > rect.top && 
+              e.getBoundingClientRect().top < rect.bottom);
+          return !!uploadBtn;
         }
         """)
-        log(f"[B站] 4:3区域已有封面: {has43}")
-        if not has43:
-            await upload_cover(cover43_path, "4:3 封面")
+        log(f"[B站] 当前在4:3区域: {in_43_area}")
+        await upload_cover(cover43_path, "4:3 封面")
 
-    # 再上传 16:9 封面 - 切换到16:9区域
+    # 上传 16:9 封面 - 必须切换到16:9区域
     if cover169_path and os.path.exists(cover169_path):
         log("[B站] 切换到16:9封面区域")
-        await page.evaluate("""
-        () => {
-          // 找顶部标签栏中的"个人空间"按钮
-          const tabs = [...document.querySelectorAll('div, span, button')]
-            .filter(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 20 && e.offsetHeight < 60);
-          // 找在页面顶部区域的（y坐标较小）
-          const topTabs = tabs.filter(e => e.getBoundingClientRect().y < 200);
-          const tab = topTabs[0] || tabs[0];
-          if (tab) {
-            tab.click();
-            console.log('clicked 个人空间 tab');
-          }
-        }
-        """)
-        await asyncio.sleep(3)
-        # 验证当前区域 - 检查16:9区域是否有图片
-        has169 = await page.evaluate("""
+        # 点击"个人空间"标签
+        try:
+            tab_169 = page.locator('text=个人空间').first
+            await tab_169.click(timeout=5000)
+            log("[B站] 已点击 个人空间 标签")
+        except:
+            log("[B站] 点击个人空间标签失败，尝试 JS 方式")
+            await page.evaluate("() => { [...document.querySelectorAll('*')].find(e => e.textContent.trim() === '个人空间')?.click(); }")
+        
+        await asyncio.sleep(2)
+        
+        # 验证当前是否在 16:9 区域
+        in_169_area = await page.evaluate("""
         () => {
           const section = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
-          const img = section?.closest('div')?.querySelector('img[src*="bfs"], img[src*="http"]');
-          return !!img;
+            .find(e => e.textContent.includes('个人空间封面（16:9）'));
+          if (!section) return false;
+          const rect = section.getBoundingClientRect();
+          const uploadBtn = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.trim() === '上传封面' && 
+              e.getBoundingClientRect().top > rect.top && 
+              e.getBoundingClientRect().top < rect.bottom);
+          return !!uploadBtn;
         }
         """)
-        log(f"[B站] 16:9区域已有封面: {has169}")
-        if not has169:
-            await upload_cover(cover169_path, "16:9 封面")
+        log(f"[B站] 当前在16:9区域: {in_169_area}")
+        
+        if not in_169_area:
+            log("[B站] 警告：可能未成功切换到16:9区域，但继续尝试上传")
+        
+        await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
     await page.evaluate("""
