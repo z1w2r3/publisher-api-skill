@@ -253,38 +253,17 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
         
         try:
             async with page.expect_file_chooser(timeout=15000) as fc_info:
-                # 使用 JS 找到对应区域的上传按钮并点击
-                clicked = await page.evaluate(f"""
-                () => {{
-                  // 找对应区域标题
-                  const is43 = '{section_title}' === '4:3';
-                  const titleText = is43 ? '首页推荐封面（4:3）' : '个人空间封面（16:9）';
-                  const title = [...document.querySelectorAll('*')]
-                    .find(e => e.textContent.includes(titleText));
-                  if (!title) {{
-                    console.log('title not found:', titleText);
-                    return false;
-                  }}
-                  const titleRect = title.getBoundingClientRect();
-                  // 在该标题下方找"上传封面"按钮
-                  const buttons = [...document.querySelectorAll('*')].filter(e => {{
-                    if (e.textContent.trim() !== '上传封面') return false;
-                    const rect = e.getBoundingClientRect();
-                    // 按钮在标题下方 300px 范围内
-                    return rect.top > titleRect.top && rect.top < titleRect.bottom + 300;
-                  }});
-                  if (buttons.length > 0) {{
-                    buttons[0].click();
-                    console.log('clicked upload in', titleText);
-                    return true;
-                  }}
-                  console.log('upload button not found in', titleText);
-                  return false;
-                }}
+                # 直接点击唯一的"上传封面"按钮
+                await page.evaluate("""
+                () => {
+                  const btn = [...document.querySelectorAll('*')]
+                    .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0);
+                  if (btn) {
+                    btn.click();
+                    console.log('clicked upload cover button');
+                  }
+                }
                 """)
-                if not clicked:
-                    log(f"[B站] {label}：未找到对应区域的上传按钮")
-                    return False
                     
             fc = await fc_info.value
             await fc.set_files(cover_path)
