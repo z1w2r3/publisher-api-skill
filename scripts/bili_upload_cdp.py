@@ -432,14 +432,37 @@ async def set_schedule(page, dtime: str):
     # Step 4: 选小时 + 分钟（span, offsetHeight=32）
     await page.evaluate(f"""
     () => {{
+      // 先选小时
       const hourEl = [...document.querySelectorAll('span')]
         .find(e => e.textContent.trim() === '{hh}' && e.offsetHeight === 32);
-      if (hourEl) {{ hourEl.scrollIntoView({{block:'center'}}); hourEl.click(); }}
-      setTimeout(() => {{
-        const spans = [...document.querySelectorAll('span')]
-          .filter(e => e.textContent.trim() === '{mm}' && e.offsetHeight === 32);
-        if (spans.length) spans[spans.length - 1].click();
-      }}, 500);
+      if (hourEl) {{ 
+        hourEl.scrollIntoView({{block:'center'}}); 
+        hourEl.click();
+        console.log('selected hour: {hh}');
+      }}
+    }}
+    """)
+    await asyncio.sleep(1)
+    
+    # 再选分钟
+    await page.evaluate(f"""
+    () => {{
+      // 找分钟元素 - 通常在小时下方的面板中
+      const spans = [...document.querySelectorAll('span')]
+        .filter(e => e.textContent.trim() === '{mm}' && e.offsetHeight === 32);
+      // 找可见的那个（在视口内的）
+      const visibleSpan = spans.find(e => {{
+        const rect = e.getBoundingClientRect();
+        return rect.top > 0 && rect.top < window.innerHeight;
+      }});
+      if (visibleSpan) {{
+        visibleSpan.click();
+        console.log('selected minute: {mm}');
+      }} else if (spans.length) {{
+        // 备选：点击第一个
+        spans[0].click();
+        console.log('selected minute (fallback): {mm}');
+      }}
     }}
     """)
     await asyncio.sleep(2)
