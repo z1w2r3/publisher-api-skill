@@ -41,7 +41,7 @@ async def check_login_and_duplicate(page, title: str) -> dict:
 
 
 async def upload_video(page, video_path: str):
-    """上传视频文件"""
+    """上传视频文件 - 使用 expect_file_chooser 触发真实上传"""
     log(f"[B站] 上传视频: {video_path}")
 
     # 关闭可能的"不用了"弹窗
@@ -54,20 +54,37 @@ async def upload_video(page, video_path: str):
     """)
     await asyncio.sleep(1)
 
-    # 找 file input 上传
-    inputs = await page.query_selector_all('input[type=file]')
-    target = None
-    for inp in inputs:
-        acc = await inp.get_attribute('accept') or ''
-        if 'video' in acc or '.mp4' in acc:
-            target = inp
-            break
-    if not target and inputs:
-        target = inputs[0]
-    if not target:
-        exit_failed("B站：找不到视频上传 input")
-    await target.set_input_files(video_path)
-    log("[B站] 视频文件已选择")
+    # 点击上传区域触发文件选择器
+    log("[B站] 点击上传区域...")
+    try:
+        async with page.expect_file_chooser(timeout=10000) as fc_info:
+            # 点击上传区域
+            await page.evaluate("""
+            () => {
+              const uploadArea = [...document.querySelectorAll('*')]
+                .find(e => e.textContent.includes('点击上传') || e.textContent.includes('拖拽到此'));
+              if (uploadArea) uploadArea.click();
+            }
+            """)
+        fc = await fc_info.value
+        await fc.set_files(video_path)
+        log("[B站] 视频文件已选择")
+    except Exception as e:
+        log(f"[B站] 点击上传失败，尝试直接设置: {e}")
+        # 备选：直接找 input
+        inputs = await page.query_selector_all('input[type=file]')
+        target = None
+        for inp in inputs:
+            acc = await inp.get_attribute('accept') or ''
+            if 'video' in acc or '.mp4' in acc:
+                target = inp
+                break
+        if not target and inputs:
+            target = inputs[0]
+        if not target:
+            exit_failed("B站：找不到视频上传 input")
+        await target.set_input_files(video_path)
+        log("[B站] 视频文件已选择(备选)")
 
 
 async def wait_upload_done(page, timeout=300):
@@ -299,7 +316,7 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
           return 'not found';
         }
         """)
-        await asyncio.sleep(3)
+        await asyncio.sleep(10)
         # 验证当前区域
         current = await page.evaluate("""
         () => {
@@ -329,7 +346,7 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
           return 'not found';
         }
         """)
-        await asyncio.sleep(3)
+        await asyncio.sleep(10)
         # 验证当前区域
         current = await page.evaluate("""
         () => {
