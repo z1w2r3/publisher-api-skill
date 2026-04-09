@@ -267,19 +267,34 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
     if cover43_path and os.path.exists(cover43_path):
         await upload_cover(cover43_path, "4:3 封面")
 
-    # 切到 16:9 封面
+    # 切到 16:9 封面 - 点击"个人空间"标签
     if cover169_path and os.path.exists(cover169_path):
+        log("[B站] 切换到个人空间封面(16:9)")
         await page.evaluate("""
         () => {
-          const label = [...document.querySelectorAll('span')]
-            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16'));
-          if (!label) return;
-          const preview = label.parentElement.nextElementSibling
-            || label.closest('div').querySelector('img, canvas, [class*=preview]');
-          if (preview) preview.click();
+          // 找"个人空间"标签（通常在底部切换区域）
+          const tab = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0 && e.offsetHeight < 50);
+          if (tab) {
+            tab.click();
+            return 'clicked tab';
+          }
+          // 备选：找包含"16:9"的文本元素
+          const label169 = [...document.querySelectorAll('span, div')]
+            .find(e => e.textContent.includes('16:9') && e.offsetHeight > 0);
+          if (label169) {
+            // 点击附近的可点击区域
+            const clickable = label169.closest('[class*=cover], [class*=item]') 
+              || label169.parentElement;
+            if (clickable) {
+              clickable.click();
+              return 'clicked label area';
+            }
+          }
+          return 'not found';
         }
         """)
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
