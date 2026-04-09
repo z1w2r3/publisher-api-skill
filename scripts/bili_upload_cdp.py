@@ -302,29 +302,24 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
         log("[B站] 上传4:3封面（默认已选中）")
         await upload_cover(cover43_path, "4:3 封面")
 
-    # 上传 16:9 封面 - 先选中16:9区域（点击"个人空间"标签）
+    # 上传 16:9 封面 - 点击 span.text "个人空间封面（16:9）" 切换画布
     if cover169_path and os.path.exists(cover169_path):
-        log("[B站] 选中16:9封面区域（点击个人空间标签）")
-        # 点击"个人空间"标签选中16:9区域
-        await page.evaluate("""
+        log("[B站] 切换到16:9封面区域")
+        switched = await page.evaluate("""
         () => {
-          // 找底部切换标签中的"个人空间"
-          const tabs = [...document.querySelectorAll('div, span, button')]
-            .filter(e => e.textContent.trim() === '个人空间');
-          // 点击最后一个（通常是底部切换标签）
-          if (tabs.length > 0) {
-            tabs[tabs.length - 1].click();
-            console.log('clicked 个人空间 tab');
-          }
+          // 点击 span.text 包含"个人空间封面"的元素（实测有效）
+          const span = [...document.querySelectorAll('span.text')]
+            .find(e => e.textContent.includes('个人空间封面'));
+          if (span) { span.click(); return 'span.text'; }
+          // 备选: 找任何包含16:9的标题 span
+          const fallback = [...document.querySelectorAll('span')]
+            .find(e => e.textContent.includes('个人空间') && e.textContent.includes('16'));
+          if (fallback) { fallback.click(); return 'fallback span'; }
+          return null;
         }
         """)
-        await asyncio.sleep(2)
-        # 等待蓝色边框出现
-        await page.evaluate("""
-        () => {
-          return new Promise(resolve => setTimeout(resolve, 500));
-        }
-        """)
+        log(f"[B站] 16:9切换方式: {switched}")
+        await asyncio.sleep(3)
         log("[B站] 已选中16:9区域，准备上传")
         await upload_cover(cover169_path, "16:9 封面")
 
@@ -522,8 +517,16 @@ async def main():
 
     pw, browser = await connect_browser()
     try:
-        # 1. 查重
-        page = await new_tab(browser, MANAGE_URL)
+        # 1. 查重（new_tab 可能因 B站重定向触发 ERR_ABORTED，加重试）
+        try:
+            page = await new_tab(browser, MANAGE_URL)
+        except Exception as e:
+            log(f"[B站] 首次导航失败，重试: {e}")
+            await asyncio.sleep(2)
+            ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+            page = await ctx.new_page()
+            await page.goto(MANAGE_URL, wait_until="load", timeout=30000)
+            await asyncio.sleep(3)
         result = await check_login_and_duplicate(page, args.title)
         if not result.get('loggedIn'):
             exit_need_login("B站")
@@ -557,15 +560,12 @@ async def main():
         if args.dtime:
             await set_schedule(page, args.dtime)
 
-        # 8. 投稿 + 验证（测试模式：只验证不实际投稿）
-        log("[B站] 【测试模式】表单填写完成，跳过实际投稿")
-        log("[B站] 【测试模式】封面设置完成，检查双封面是否正确")
-        # ok = await publish(page)
-        # if ok:
-        #     exit_published(args.dtime)
-        # else:
-        #     exit_failed("B站：投稿后未检测到成功状态")
-        exit_published(args.dtime)
+        # 8. 投稿 + 验证
+        ok = await publish(page)
+        if ok:
+            exit_published(args.dtime)
+        else:
+            exit_failed("B站：投稿后未检测到成功状态")
 
     except Exception as e:
         import traceback
