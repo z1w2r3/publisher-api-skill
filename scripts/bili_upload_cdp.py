@@ -277,31 +277,9 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 上传 4:3 封面 - 先选中4:3区域（点击"首页推荐"标签）
+    # 上传 4:3 封面 - 默认已选中4:3区域，直接上传
     if cover43_path and os.path.exists(cover43_path):
-        log("[B站] 选中4:3封面区域（点击首页推荐标签）")
-        # 点击"首页推荐"标签选中4:3区域
-        await page.evaluate("""
-        () => {
-          // 找底部切换标签中的"首页推荐"
-          const tabs = [...document.querySelectorAll('div, span, button')]
-            .filter(e => e.textContent.trim() === '首页推荐');
-          // 点击最后一个（通常是底部切换标签）
-          if (tabs.length > 0) {
-            tabs[tabs.length - 1].click();
-            console.log('clicked 首页推荐 tab');
-          }
-        }
-        """)
-        await asyncio.sleep(2)
-        # 等待蓝色边框出现（表示已选中）
-        await page.evaluate("""
-        () => {
-          // 等待一下让UI更新
-          return new Promise(resolve => setTimeout(resolve, 500));
-        }
-        """)
-        log("[B站] 已选中4:3区域，准备上传")
+        log("[B站] 上传4:3封面（默认已选中）")
         await upload_cover(cover43_path, "4:3 封面")
 
     # 上传 16:9 封面 - 先选中16:9区域（点击"个人空间"标签）
