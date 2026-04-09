@@ -71,7 +71,7 @@ async def upload_video(page, video_path: str):
 
 
 async def wait_upload_done(page, timeout=300):
-    """等待上传完成：标题 input 出现 + 页面包含"上传完成""""
+    """等待上传完成：标题 input 出现 + 页面包含上传完成"""
     log("[B站] 等待视频上传完成...")
     for i in range(timeout // 5):
         await asyncio.sleep(5)
@@ -94,7 +94,7 @@ async def wait_upload_done(page, timeout=300):
 
 
 async def fill_title(page, title: str):
-    """填标题 + 选"自制""""
+    """填标题 + 选自制"""
     log(f"[B站] 填写标题: {title[:30]}...")
     await page.evaluate("""
     (title) => {
@@ -115,7 +115,7 @@ async def fill_title(page, title: str):
 
 
 async def select_zone(page):
-    """选分区"人工智能""""
+    """选分区：人工智能"""
     log("[B站] 选择分区: 人工智能")
     await page.evaluate("""
     () => {
@@ -382,7 +382,7 @@ async def set_schedule(page, dtime: str):
 
 
 async def publish(page) -> bool:
-    """点击"立即投稿"按钮"""
+    """点击立即投稿按钮"""
     log("[B站] 点击投稿")
     await page.evaluate("""
     () => {
