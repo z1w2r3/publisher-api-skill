@@ -349,16 +349,36 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
     # 上传 16:9 封面 - 必须切换到16:9区域
     if cover169_path and os.path.exists(cover169_path):
         log("[B站] 切换到16:9封面区域")
-        # 点击"个人空间"标签
+        # 点击底部切换标签中的"个人空间"（不是区域标题）
         try:
-            tab_169 = page.locator('text=个人空间').first
-            await tab_169.click(timeout=5000)
-            log("[B站] 已点击 个人空间 标签")
-        except:
-            log("[B站] 点击个人空间标签失败，尝试 JS 方式")
-            await page.evaluate("() => { [...document.querySelectorAll('*')].find(e => e.textContent.trim() === '个人空间')?.click(); }")
+            # 方法1：找所有包含"个人空间"的按钮/span，选最后一个（通常在底部）
+            all_tabs = await page.locator('text=个人空间').all()
+            if len(all_tabs) >= 2:
+                # 有多个，点击最后一个（底部切换标签）
+                await all_tabs[-1].click(timeout=5000)
+                log("[B站] 已点击底部 个人空间 标签")
+            else:
+                # 只有一个，使用 first
+                tab_169 = page.locator('text=个人空间').first
+                await tab_169.click(timeout=5000)
+                log("[B站] 已点击 个人空间 标签")
+        except Exception as e:
+            log(f"[B站] 点击个人空间标签失败: {e}，尝试 JS 方式")
+            # JS 方式：找底部区域的按钮
+            await page.evaluate("""
+            () => {
+              // 找所有包含"个人空间"的元素
+              const all = [...document.querySelectorAll('*')].filter(e => e.textContent.trim() === '个人空间');
+              // 点击最后一个（通常是底部标签）
+              if (all.length > 0) {
+                const last = all[all.length - 1];
+                last.click();
+                console.log('clicked last 个人空间 element');
+              }
+            }
+            """)
         
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         
         # 验证当前是否在 16:9 区域
         in_169_area = await page.evaluate("""
@@ -377,7 +397,7 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
         log(f"[B站] 当前在16:9区域: {in_169_area}")
         
         if not in_169_area:
-            log("[B站] 警告：可能未成功切换到16:9区域，但继续尝试上传")
+            log("[B站] 警告：可能未成功切换到16:9区域")
         
         await upload_cover(cover169_path, "16:9 封面")
 
