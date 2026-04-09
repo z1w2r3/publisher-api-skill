@@ -252,8 +252,29 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
         log(f"[B站] {label}：查找 {section_title} 区域的上传按钮...")
         
         try:
+            # 先检查按钮是否存在，避免在 expect_file_chooser 内部提前 return 导致 15s 超时
+            has_btn = await page.evaluate(f"""
+            () => {{
+              const is43 = '{section_title}' === '4:3';
+              const titleText = is43 ? '首页推荐封面（4:3）' : '个人空间封面（16:9）';
+              const title = [...document.querySelectorAll('*')]
+                .find(e => e.textContent.includes(titleText));
+              if (!title) return false;
+              const titleRect = title.getBoundingClientRect();
+              const buttons = [...document.querySelectorAll('*')].filter(e => {{
+                if (e.textContent.trim() !== '上传封面') return false;
+                const rect = e.getBoundingClientRect();
+                return rect.top > titleRect.top && rect.top < titleRect.bottom + 300;
+              }});
+              return buttons.length > 0;
+            }}
+            """)
+            if not has_btn:
+                log(f"[B站] {label}：未找到对应区域的上传按钮")
+                return False
+
             async with page.expect_file_chooser(timeout=15000) as fc_info:
-                # 直接点击唯一的"上传封面"按钮
+                # 直接点击唯一的"上传封面"按钮（tab 已切换，只有一个可见）
                 await page.evaluate("""
                 () => {
                   const btn = [...document.querySelectorAll('*')]
@@ -264,11 +285,10 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
                   }
                 }
                 """)
-                    
             fc = await fc_info.value
             await fc.set_files(cover_path)
             log(f"[B站] {label}：文件已选择，等待上传完成...")
-            await asyncio.sleep(8)  # 等待上传完成
+            await asyncio.sleep(8)
             log(f"[B站] {label} 上传完成")
             return True
         except Exception as e:
