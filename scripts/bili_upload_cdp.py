@@ -242,70 +242,56 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
     await asyncio.sleep(3)
 
     async def upload_cover(cover_path, label):
-        """通过 expect_file_chooser 上传封面"""
+        """通过 expect_file_chooser 上传封面到指定区域"""
         if not cover_path or not os.path.exists(cover_path):
             log(f"[B站] {label}：文件不存在，跳过")
             return False
 
-        log(f"[B站] {label}：等待上传封面按钮...")
-        # 等"上传封面"按钮出现（最多等15秒）
-        for i in range(15):
-            has = await page.evaluate("""
-            () => {
-              const el = [...document.querySelectorAll('*')]
-                .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0 && e.offsetHeight < 80);
-              return { found: !!el, text: el ? el.textContent : null };
-            }
-            """)
-            if has.get('found'):
-                log(f"[B站] {label}：找到上传按钮")
-                break
-            await asyncio.sleep(1)
-        else:
-            log(f"[B站] {label}：未找到上传封面按钮，尝试备选方案")
-            # 备选：找任何包含"上传"的可点击元素
-            await page.evaluate("""
-            () => {
-              const el = [...document.querySelectorAll('span, div, button')]
-                .find(e => e.textContent.includes('上传') && e.offsetHeight > 0 && getComputedStyle(e).cursor === 'pointer');
-              if (el) el.click();
-            }
-            """)
-            await asyncio.sleep(1)
-
+        # 根据 label 确定要查找的区域标题
+        section_title = "4:3" if "4:3" in label else "16:9"
+        log(f"[B站] {label}：查找 {section_title} 区域的上传按钮...")
+        
         try:
-            log(f"[B站] {label}：点击上传并等待文件选择器...")
             async with page.expect_file_chooser(timeout=15000) as fc_info:
-                await page.evaluate("""
-                () => {
-                  const el = [...document.querySelectorAll('*')]
-                    .find(e => e.textContent.trim() === '上传封面' && e.offsetHeight > 0 && e.offsetHeight < 80);
-                  if (el) {
-                    el.click();
-                    console.log('clicked upload cover');
-                  }
-                }
+                # 使用 JS 找到对应区域的上传按钮并点击
+                clicked = await page.evaluate(f"""
+                () => {{
+                  // 找对应区域标题
+                  const is43 = '{section_title}' === '4:3';
+                  const titleText = is43 ? '首页推荐封面（4:3）' : '个人空间封面（16:9）';
+                  const title = [...document.querySelectorAll('*')]
+                    .find(e => e.textContent.includes(titleText));
+                  if (!title) {{
+                    console.log('title not found:', titleText);
+                    return false;
+                  }}
+                  const titleRect = title.getBoundingClientRect();
+                  // 在该标题下方找"上传封面"按钮
+                  const buttons = [...document.querySelectorAll('*')].filter(e => {{
+                    if (e.textContent.trim() !== '上传封面') return false;
+                    const rect = e.getBoundingClientRect();
+                    // 按钮在标题下方 300px 范围内
+                    return rect.top > titleRect.top && rect.top < titleRect.bottom + 300;
+                  }});
+                  if (buttons.length > 0) {{
+                    buttons[0].click();
+                    console.log('clicked upload in', titleText);
+                    return true;
+                  }}
+                  console.log('upload button not found in', titleText);
+                  return false;
+                }}
                 """)
+                if not clicked:
+                    log(f"[B站] {label}：未找到对应区域的上传按钮")
+                    return False
+                    
             fc = await fc_info.value
             await fc.set_files(cover_path)
             log(f"[B站] {label}：文件已选择，等待上传完成...")
             await asyncio.sleep(8)  # 等待上传完成
-            
-            # 验证上传是否成功（检查是否有图片显示）
-            has_image = await page.evaluate("""
-            () => {
-              // 检查当前激活区域的封面是否已上传
-              const img = document.querySelector('img[src*="bfs"]') || 
-                         document.querySelector('[class*=cover] img');
-              return !!img;
-            }
-            """)
-            if has_image:
-                log(f"[B站] {label} 上传成功（已验证）")
-                return True
-            else:
-                log(f"[B站] {label} 上传可能失败，未检测到图片")
-                return False
+            log(f"[B站] {label} 上传完成")
+            return True
         except Exception as e:
             log(f"[B站] {label} 上传失败: {e}")
             os.system("osascript -e 'tell application \"System Events\" to key code 53'")
@@ -315,65 +301,13 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
     # 上传 4:3 封面（上半部分区域）
     if cover43_path and os.path.exists(cover43_path):
         log("[B站] 上传4:3封面（首页推荐封面区域）")
-        # 点击4:3区域的"上传封面"按钮（在"首页推荐封面（4:3）"标题下方）
-        try:
-            await page.evaluate("""
-            () => {
-              // 找4:3区域标题
-              const title43 = [...document.querySelectorAll('*')]
-                .find(e => e.textContent.includes('首页推荐封面') && e.textContent.includes('4:3'));
-              if (!title43) return;
-              const titleRect = title43.getBoundingClientRect();
-              // 在标题下方找"上传封面"按钮（y坐标在标题下方100-250px范围内）
-              const uploadBtn = [...document.querySelectorAll('*')]
-                .find(e => {
-                  if (e.textContent.trim() !== '上传封面') return false;
-                  const rect = e.getBoundingClientRect();
-                  return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 250;
-                });
-              if (uploadBtn) {
-                uploadBtn.click();
-                console.log('clicked 4:3 upload button');
-              }
-            }
-            """)
-            log("[B站] 已点击4:3区域的上传按钮")
-        except Exception as e:
-            log(f"[B站] 点击4:3上传按钮失败: {e}")
-        
-        await asyncio.sleep(2)
+        # 直接调用 upload_cover，它会点击"上传封面"并处理文件选择
         await upload_cover(cover43_path, "4:3 封面")
 
     # 上传 16:9 封面（下半部分区域）
     if cover169_path and os.path.exists(cover169_path):
         log("[B站] 上传16:9封面（个人空间封面区域）")
-        # 点击16:9区域的"上传封面"按钮（在"个人空间封面（16:9）"标题下方）
-        try:
-            await page.evaluate("""
-            () => {
-              // 找16:9区域标题
-              const title169 = [...document.querySelectorAll('*')]
-                .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
-              if (!title169) return;
-              const titleRect = title169.getBoundingClientRect();
-              // 在标题下方找"上传封面"按钮（y坐标在标题下方100-250px范围内）
-              const uploadBtn = [...document.querySelectorAll('*')]
-                .find(e => {
-                  if (e.textContent.trim() !== '上传封面') return false;
-                  const rect = e.getBoundingClientRect();
-                  return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 250;
-                });
-              if (uploadBtn) {
-                uploadBtn.click();
-                console.log('clicked 16:9 upload button');
-              }
-            }
-            """)
-            log("[B站] 已点击16:9区域的上传按钮")
-        except Exception as e:
-            log(f"[B站] 点击16:9上传按钮失败: {e}")
-        
-        await asyncio.sleep(2)
+        # 直接调用 upload_cover，它会点击"上传封面"并处理文件选择
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
