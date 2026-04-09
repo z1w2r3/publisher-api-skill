@@ -263,38 +263,40 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 上传 4:3 封面（主封面）
+    # 先上传 4:3 封面
     if cover43_path and os.path.exists(cover43_path):
-        await upload_cover(cover43_path, "4:3 封面")
-
-    # 切到 16:9 封面 - 点击"个人空间"标签
-    if cover169_path and os.path.exists(cover169_path):
-        log("[B站] 切换到个人空间封面(16:9)")
+        log("[B站] 选中4:3封面区域")
         await page.evaluate("""
         () => {
-          // 找"个人空间"标签（通常在底部切换区域）
-          const tab = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0 && e.offsetHeight < 50);
-          if (tab) {
-            tab.click();
-            return 'clicked tab';
+          // 找"首页推荐封面（4:3）"区域并点击选中
+          const el43 = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('首页推荐') && e.textContent.includes('4:3') && e.offsetHeight > 0);
+          if (el43) {
+            // 点击该区域或其父级来选中
+            const clickable = el43.closest('[class*=cover]') || el43.parentElement;
+            if (clickable) clickable.click();
           }
-          // 备选：找包含"16:9"的文本元素
-          const label169 = [...document.querySelectorAll('span, div')]
-            .find(e => e.textContent.includes('16:9') && e.offsetHeight > 0);
-          if (label169) {
-            // 点击附近的可点击区域
-            const clickable = label169.closest('[class*=cover], [class*=item]') 
-              || label169.parentElement;
-            if (clickable) {
-              clickable.click();
-              return 'clicked label area';
-            }
-          }
-          return 'not found';
         }
         """)
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
+        await upload_cover(cover43_path, "4:3 封面")
+
+    # 再上传 16:9 封面 - 先选中16:9区域
+    if cover169_path and os.path.exists(cover169_path):
+        log("[B站] 选中16:9封面区域")
+        await page.evaluate("""
+        () => {
+          // 找"个人空间封面（16:9）"区域并点击选中
+          const el169 = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('个人空间') && e.textContent.includes('16:9') && e.offsetHeight > 0);
+          if (el169) {
+            // 点击该区域或其父级来选中
+            const clickable = el169.closest('[class*=cover]') || el169.parentElement;
+            if (clickable) clickable.click();
+          }
+        }
+        """)
+        await asyncio.sleep(2)
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
