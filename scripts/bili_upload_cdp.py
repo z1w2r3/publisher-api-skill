@@ -312,99 +312,68 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 上传 4:3 封面 - 先确保在4:3区域
+    # 上传 4:3 封面（上半部分区域）
     if cover43_path and os.path.exists(cover43_path):
-        log("[B站] 确保在4:3封面区域")
-        # 点击"首页推荐"标签（使用 Playwright locator 更可靠）
+        log("[B站] 上传4:3封面（首页推荐封面区域）")
+        # 点击4:3区域的"上传封面"按钮（在"首页推荐封面（4:3）"标题下方）
         try:
-            # 找文本为"首页推荐"的元素，通常有两个（标签 + 区域标题），点击第一个
-            tab_43 = page.locator('text=首页推荐').first
-            await tab_43.click(timeout=5000)
-            log("[B站] 已点击 首页推荐 标签")
-        except:
-            log("[B站] 点击首页推荐标签失败，尝试 JS 方式")
-            await page.evaluate("() => { document.querySelector('text=首页推荐')?.click(); }")
-        
-        await asyncio.sleep(2)
-        
-        # 验证当前是否在 4:3 区域（检查是否显示了 4:3 的"上传封面"按钮或已有封面）
-        in_43_area = await page.evaluate("""
-        () => {
-          // 检查4:3区域是否激活（看是否有img或者上传按钮在4:3区域内）
-          const section = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('首页推荐封面（4:3）'));
-          if (!section) return false;
-          const rect = section.getBoundingClientRect();
-          // 检查该区域是否有上传按钮或图片
-          const uploadBtn = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.trim() === '上传封面' && 
-              e.getBoundingClientRect().top > rect.top && 
-              e.getBoundingClientRect().top < rect.bottom);
-          return !!uploadBtn;
-        }
-        """)
-        log(f"[B站] 当前在4:3区域: {in_43_area}")
-        await upload_cover(cover43_path, "4:3 封面")
-
-    # 上传 16:9 封面 - 必须切换到16:9区域
-    if cover169_path and os.path.exists(cover169_path):
-        log("[B站] 切换到16:9封面区域")
-        
-        # 方法：点击右上角"个人空间"标签按钮（与"首页推荐"并排）
-        try:
-            # 找右上角标签栏中的"个人空间"按钮
-            # 通常是横向排列的两个按钮之一
             await page.evaluate("""
             () => {
-              // 找所有可能是标签按钮的元素
-              const candidates = [...document.querySelectorAll('button, div, span')]
-                .filter(e => e.textContent.trim() === '个人空间');
-              // 找在页面右上角的（x坐标较大，y坐标较小）
-              const rightTopOnes = candidates.filter(e => {
-                const rect = e.getBoundingClientRect();
-                return rect.x > window.innerWidth * 0.7 && rect.y < 200;
-              });
-              // 点击第一个匹配右上角区域的
-              if (rightTopOnes.length > 0) {
-                rightTopOnes[0].click();
-                console.log('clicked right-top 个人空间 tab');
-              } else if (candidates.length > 0) {
-                // 备选：点击最后一个
-                candidates[candidates.length - 1].click();
-                console.log('clicked fallback 个人空间 tab');
+              // 找4:3区域标题
+              const title43 = [...document.querySelectorAll('*')]
+                .find(e => e.textContent.includes('首页推荐封面') && e.textContent.includes('4:3'));
+              if (!title43) return;
+              const titleRect = title43.getBoundingClientRect();
+              // 在标题下方找"上传封面"按钮（y坐标在标题下方100-250px范围内）
+              const uploadBtn = [...document.querySelectorAll('*')]
+                .find(e => {
+                  if (e.textContent.trim() !== '上传封面') return false;
+                  const rect = e.getBoundingClientRect();
+                  return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 250;
+                });
+              if (uploadBtn) {
+                uploadBtn.click();
+                console.log('clicked 4:3 upload button');
               }
             }
             """)
-            log("[B站] 已点击右上角 个人空间 标签")
+            log("[B站] 已点击4:3区域的上传按钮")
         except Exception as e:
-            log(f"[B站] 点击个人空间标签失败: {e}")
+            log(f"[B站] 点击4:3上传按钮失败: {e}")
         
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
+        await upload_cover(cover43_path, "4:3 封面")
+
+    # 上传 16:9 封面（下半部分区域）
+    if cover169_path and os.path.exists(cover169_path):
+        log("[B站] 上传16:9封面（个人空间封面区域）")
+        # 点击16:9区域的"上传封面"按钮（在"个人空间封面（16:9）"标题下方）
+        try:
+            await page.evaluate("""
+            () => {
+              // 找16:9区域标题
+              const title169 = [...document.querySelectorAll('*')]
+                .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
+              if (!title169) return;
+              const titleRect = title169.getBoundingClientRect();
+              // 在标题下方找"上传封面"按钮（y坐标在标题下方100-250px范围内）
+              const uploadBtn = [...document.querySelectorAll('*')]
+                .find(e => {
+                  if (e.textContent.trim() !== '上传封面') return false;
+                  const rect = e.getBoundingClientRect();
+                  return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 250;
+                });
+              if (uploadBtn) {
+                uploadBtn.click();
+                console.log('clicked 16:9 upload button');
+              }
+            }
+            """)
+            log("[B站] 已点击16:9区域的上传按钮")
+        except Exception as e:
+            log(f"[B站] 点击16:9上传按钮失败: {e}")
         
-        # 验证当前是否在 16:9 区域 - 检查16:9区域是否有"上传封面"按钮
-        in_169_area = await page.evaluate("""
-        () => {
-          // 找"个人空间封面（16:9）"区域标题
-          const title16 = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
-          if (!title16) return false;
-          const titleRect = title16.getBoundingClientRect();
-          // 在该标题下方找"上传封面"按钮
-          const uploadBtn = [...document.querySelectorAll('*')]
-            .find(e => {
-              if (e.textContent.trim() !== '上传封面') return false;
-              const rect = e.getBoundingClientRect();
-              // 按钮在标题下方
-              return rect.top > titleRect.bottom && rect.top < titleRect.bottom + 300;
-            });
-          return !!uploadBtn;
-        }
-        """)
-        log(f"[B站] 当前在16:9区域: {in_169_area}")
-        
-        if not in_169_area:
-            log("[B站] 警告：可能未成功切换到16:9区域")
-        
+        await asyncio.sleep(2)
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
