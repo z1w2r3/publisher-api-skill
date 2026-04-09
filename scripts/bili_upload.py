@@ -58,13 +58,13 @@ def load_cookie(cookie_path: str):
     return raw, extracted
 
 
-def submit_v3(session, bili_jct: str, video_data: dict) -> dict:
+def submit_web(session, bili_jct: str, video_data: dict) -> dict:
     """
-    直接调 v3 接口提交稿件，支持新版分区(human_type2)和双封面(cover43/cover169)
-    POST https://member.bilibili.com/x/vu/web/add/v3?csrf={csrf}&type_mode=2
+    调用标准 web 接口提交稿件
+    POST https://member.bilibili.com/x/vu/web/add?csrf={csrf}
     """
-    url = f"https://member.bilibili.com/x/vu/web/add/v3?csrf={bili_jct}&type_mode=2"
-    print(f"[提交] 调用 v3 接口，分区 human_type2={video_data.get('human_type2')}", flush=True)
+    url = f"https://member.bilibili.com/x/vu/web/add?csrf={bili_jct}"
+    print(f"[提交] 调用 web 接口，分区 tid={video_data.get('tid')}", flush=True)
     ret = session.post(url, timeout=30, json=video_data).json()
     return ret
 
@@ -133,19 +133,17 @@ def main():
                 cover169_url = bili.cover_up(args.cover169).replace("http:", "https:")
                 print(f"[封面] 16:9 上传成功: {cover169_url[:60]}...", flush=True)
 
-            # Step 3: 组装 v3 提交体
+            # Step 3: 组装 web 提交体
             video_dict = asdict(data)
-            # 新版分区（覆盖 tid 逻辑，由 human_type2 决定实际分区）
+            # 使用新版分区 human_type2
+            video_dict["tid"] = 0  # tid 设为 0，使用 human_type2
             video_dict["human_type2"] = int(args.zone)
-            # 封面
+            # 封面（web 接口只用 cover）
             if cover43_url:
                 video_dict["cover"] = cover43_url   # 主封面 = 4:3（横屏显示）
-                video_dict["cover43"] = cover43_url
-            if cover169_url:
-                video_dict["cover169"] = cover169_url
 
-            # Step 4: 提交 v3
-            ret = submit_v3(bili._BiliBili__session, bili_jct, video_dict)
+            # Step 4: 提交 web
+            ret = submit_web(bili._BiliBili__session, bili_jct, video_dict)
 
             if ret.get("code") == 0:
                 bvid = ret.get("data", {}).get("bvid", "")
