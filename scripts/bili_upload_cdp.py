@@ -290,8 +290,22 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await fc.set_files(cover_path)
             log(f"[B站] {label}：文件已选择，等待上传完成...")
             await asyncio.sleep(8)  # 等待上传完成
-            log(f"[B站] {label} 上传成功")
-            return True
+            
+            # 验证上传是否成功（检查是否有图片显示）
+            has_image = await page.evaluate("""
+            () => {
+              // 检查当前激活区域的封面是否已上传
+              const img = document.querySelector('img[src*="bfs"]') || 
+                         document.querySelector('[class*=cover] img');
+              return !!img;
+            }
+            """)
+            if has_image:
+                log(f"[B站] {label} 上传成功（已验证）")
+                return True
+            else:
+                log(f"[B站] {label} 上传可能失败，未检测到图片")
+                return False
         except Exception as e:
             log(f"[B站] {label} 上传失败: {e}")
             os.system("osascript -e 'tell application \"System Events\" to key code 53'")
@@ -429,39 +443,46 @@ async def set_schedule(page, dtime: str):
         await page.mouse.click(coords['x'], coords['y'])
         await asyncio.sleep(2)
 
-    # Step 4: 选小时 + 分钟（span, offsetHeight=32）
+    # Step 4: 选小时 + 分钟
+    # 使用更可靠的方式：直接通过坐标点击
+    log(f"[B站] 选择时间: {hh}:{mm}")
+    
+    # 选小时 - 点击时间列中对应小时的元素
     await page.evaluate(f"""
     () => {{
-      // 先选小时
-      const hourEl = [...document.querySelectorAll('span')]
-        .find(e => e.textContent.trim() === '{hh}' && e.offsetHeight === 32);
-      if (hourEl) {{ 
-        hourEl.scrollIntoView({{block:'center'}}); 
-        hourEl.click();
-        console.log('selected hour: {hh}');
+      // 找所有可能是时间选项的span
+      const allSpans = [...document.querySelectorAll('span, div')];
+      // 找显示小时的面板（通常有两个时间列，第一个是小时）
+      const hourCandidates = allSpans.filter(e => {{
+        const text = e.textContent.trim();
+        const rect = e.getBoundingClientRect();
+        // 在时间选择面板内（通常在屏幕中间偏左）
+        return text === '{hh}' && rect.width > 20 && rect.width < 80 && rect.height > 20 && rect.height < 50;
+      }});
+      if (hourCandidates.length > 0) {{
+        // 点击第一个匹配的
+        hourCandidates[0].click();
+        console.log('clicked hour:', '{hh}');
       }}
     }}
     """)
-    await asyncio.sleep(1)
+    await asyncio.sleep(1.5)
     
-    # 再选分钟
+    # 选分钟
     await page.evaluate(f"""
     () => {{
-      // 找分钟元素 - 通常在小时下方的面板中
-      const spans = [...document.querySelectorAll('span')]
-        .filter(e => e.textContent.trim() === '{mm}' && e.offsetHeight === 32);
-      // 找可见的那个（在视口内的）
-      const visibleSpan = spans.find(e => {{
+      const allSpans = [...document.querySelectorAll('span, div')];
+      // 找分钟 - 在分钟列中（通常在屏幕中间偏右）
+      const minCandidates = allSpans.filter(e => {{
+        const text = e.textContent.trim();
         const rect = e.getBoundingClientRect();
-        return rect.top > 0 && rect.top < window.innerHeight;
+        return text === '{mm}' && rect.width > 20 && rect.width < 80 && rect.height > 20 && rect.height < 50;
       }});
-      if (visibleSpan) {{
-        visibleSpan.click();
-        console.log('selected minute: {mm}');
-      }} else if (spans.length) {{
-        // 备选：点击第一个
-        spans[0].click();
-        console.log('selected minute (fallback): {mm}');
+      if (minCandidates.length > 0) {{
+        // 如果有多个，选第二个（小时选完后，分钟列会激活）
+        const target = minCandidates.length > 1 ? minCandidates[minCandidates.length - 1] : minCandidates[0];
+        target.click();
+        console.log('clicked minute:', '{mm}');
       }}
     }}
     """)
