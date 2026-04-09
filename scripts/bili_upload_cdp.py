@@ -281,34 +281,64 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
             await asyncio.sleep(0.5)
             return False
 
-    # 先上传 4:3 封面
+    # 先上传 4:3 封面 - 先确保在4:3区域（点击"首页推荐"标签）
     if cover43_path and os.path.exists(cover43_path):
-        log("[B站] 上传4:3封面")
-        await upload_cover(cover43_path, "4:3 封面")
-
-    # 再上传 16:9 封面 - 先切换到16:9区域
-    if cover169_path and os.path.exists(cover169_path):
-        log("[B站] 切换到16:9封面区域")
+        log("[B站] 切换到4:3封面区域")
         await page.evaluate("""
         () => {
-          // 点击"个人空间"标签切换到16:9
-          const tab = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0 && e.offsetHeight < 40);
+          // 点击"首页推荐"标签切换到4:3
+          const tabs = [...document.querySelectorAll('*')]
+            .filter(e => e.textContent.trim() === '首页推荐' && e.offsetHeight > 0);
+          // 找高度较小的那个（标签按钮）
+          const tab = tabs.find(e => e.offsetHeight < 50) || tabs[0];
           if (tab) {
             tab.click();
-            return 'switched to 16:9';
-          }
-          // 备选：点击包含16:9文本的元素
-          const el = [...document.querySelectorAll('*')]
-            .find(e => e.textContent.includes('个人空间封面') && e.textContent.includes('16:9'));
-          if (el) {
-            el.click();
-            return 'clicked 16:9 area';
+            console.log('clicked 首页推荐 tab');
+            return 'switched to 4:3';
           }
           return 'not found';
         }
         """)
         await asyncio.sleep(3)
+        # 验证当前区域
+        current = await page.evaluate("""
+        () => {
+          const active = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('首页推荐封面') && getComputedStyle(e).fontWeight > 400);
+          return active ? '4:3' : 'unknown';
+        }
+        """)
+        log(f"[B站] 当前封面区域: {current}")
+        await upload_cover(cover43_path, "4:3 封面")
+
+    # 再上传 16:9 封面 - 切换到16:9区域
+    if cover169_path and os.path.exists(cover169_path):
+        log("[B站] 切换到16:9封面区域")
+        await page.evaluate("""
+        () => {
+          // 点击"个人空间"标签切换到16:9
+          const tabs = [...document.querySelectorAll('*')]
+            .filter(e => e.textContent.trim() === '个人空间' && e.offsetHeight > 0);
+          // 找高度较小的那个（标签按钮）
+          const tab = tabs.find(e => e.offsetHeight < 50) || tabs[0];
+          if (tab) {
+            tab.click();
+            console.log('clicked 个人空间 tab');
+            return 'switched to 16:9';
+          }
+          return 'not found';
+        }
+        """)
+        await asyncio.sleep(3)
+        # 验证当前区域
+        current = await page.evaluate("""
+        () => {
+          const active = [...document.querySelectorAll('*')]
+            .find(e => e.textContent.includes('个人空间封面') && getComputedStyle(e).fontWeight > 400);
+          return active ? '16:9' : 'unknown';
+        }
+        """)
+        log(f"[B站] 当前封面区域: {current}")
         await upload_cover(cover169_path, "16:9 封面")
 
     # 点"完成"关闭弹窗
