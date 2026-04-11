@@ -380,19 +380,23 @@ async def set_schedule(page, dtime: str):
     """)
     await asyncio.sleep(2)
 
-    # Step 3: 点时间元素打开时间面板
+    # Step 3: 点时间元素打开时间面板（先滚动到可见区域再取坐标）
     coords = await page.evaluate("""
     () => {
       const els = document.querySelectorAll('.date-show');
       const timeEl = [...els].find(e => /^\\d{2}:\\d{2}$/.test(e.textContent));
       if (!timeEl) return null;
+      timeEl.scrollIntoView({ block: 'center' });
       const r = timeEl.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     }
     """)
     if coords:
         await page.mouse.click(coords['x'], coords['y'])
+        log(f"[B站] 点击时间元素打开面板: ({coords['x']:.0f}, {coords['y']:.0f})")
         await asyncio.sleep(2)
+    else:
+        log("[B站] 未找到时间元素")
 
     # Step 4: 选小时 + 分钟
     # B站时间面板: .time-picker-panel-select-wrp 两列（小时/分钟）
