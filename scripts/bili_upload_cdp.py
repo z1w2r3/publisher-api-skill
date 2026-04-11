@@ -395,46 +395,30 @@ async def set_schedule(page, dtime: str):
         await asyncio.sleep(2)
 
     # Step 4: 选小时 + 分钟
-    # 使用更可靠的方式：直接通过坐标点击
+    # B站时间选项是 span 元素，固定高度 32px，小时和分钟在同一 evaluate 中串行选择
     log(f"[B站] 选择时间: {hh}:{mm}")
-    
-    # 选小时 - 点击时间列中对应小时的元素
+
     await page.evaluate(f"""
     () => {{
-      // 找所有可能是时间选项的span
-      const allSpans = [...document.querySelectorAll('span, div')];
-      // 找显示小时的面板（通常有两个时间列，第一个是小时）
-      const hourCandidates = allSpans.filter(e => {{
-        const text = e.textContent.trim();
-        const rect = e.getBoundingClientRect();
-        // 在时间选择面板内（通常在屏幕中间偏左）
-        return text === '{hh}' && rect.width > 20 && rect.width < 80 && rect.height > 20 && rect.height < 50;
-      }});
-      if (hourCandidates.length > 0) {{
-        // 点击第一个匹配的
-        hourCandidates[0].click();
-        console.log('clicked hour:', '{hh}');
+      const HH = '{hh}', MM = '{mm}';
+      // 选小时: span 文本匹配 + offsetHeight === 32
+      const hourEl = [...document.querySelectorAll('span')]
+        .find(e => e.textContent.trim() === HH && e.offsetHeight === 32);
+      if (hourEl) {{
+        hourEl.scrollIntoView({{ block: 'center' }});
+        hourEl.click();
+        console.log('clicked hour:', HH);
       }}
-    }}
-    """)
-    await asyncio.sleep(1.5)
-    
-    # 选分钟
-    await page.evaluate(f"""
-    () => {{
-      const allSpans = [...document.querySelectorAll('span, div')];
-      // 找分钟 - 在分钟列中（通常在屏幕中间偏右）
-      const minCandidates = allSpans.filter(e => {{
-        const text = e.textContent.trim();
-        const rect = e.getBoundingClientRect();
-        return text === '{mm}' && rect.width > 20 && rect.width < 80 && rect.height > 20 && rect.height < 50;
-      }});
-      if (minCandidates.length > 0) {{
-        // 如果有多个，选第二个（小时选完后，分钟列会激活）
-        const target = minCandidates.length > 1 ? minCandidates[minCandidates.length - 1] : minCandidates[0];
-        target.click();
-        console.log('clicked minute:', '{mm}');
-      }}
+      // 选分钟: 延迟 500ms 等小时选完，取最后一个匹配（分钟列在小时列之后）
+      setTimeout(() => {{
+        const spans = [...document.querySelectorAll('span')]
+          .filter(e => e.textContent.trim() === MM && e.offsetHeight === 32);
+        if (spans.length) {{
+          spans[spans.length - 1].scrollIntoView({{ block: 'center' }});
+          spans[spans.length - 1].click();
+          console.log('clicked minute:', MM);
+        }}
+      }}, 500);
     }}
     """)
     await asyncio.sleep(2)
