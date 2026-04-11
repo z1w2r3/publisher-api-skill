@@ -395,32 +395,46 @@ async def set_schedule(page, dtime: str):
         await asyncio.sleep(2)
 
     # Step 4: 选小时 + 分钟
-    # B站时间选项是 span 元素，固定高度 32px，小时和分钟在同一 evaluate 中串行选择
+    # B站时间面板: .time-picker-panel-select-wrp 两列（小时/分钟）
+    # 用 scrollIntoView + page.mouse.click(坐标) 确保真实点击生效
     log(f"[B站] 选择时间: {hh}:{mm}")
 
-    await page.evaluate(f"""
+    # 选小时
+    hour_coords = await page.evaluate(f"""
     () => {{
-      const HH = '{hh}', MM = '{mm}';
-      // 选小时: span 文本匹配 + offsetHeight === 32
-      const hourEl = [...document.querySelectorAll('span')]
-        .find(e => e.textContent.trim() === HH && e.offsetHeight === 32);
-      if (hourEl) {{
-        hourEl.scrollIntoView({{ block: 'center' }});
-        hourEl.click();
-        console.log('clicked hour:', HH);
-      }}
-      // 选分钟: 延迟 500ms 等小时选完，取最后一个匹配（分钟列在小时列之后）
-      setTimeout(() => {{
-        const spans = [...document.querySelectorAll('span')]
-          .filter(e => e.textContent.trim() === MM && e.offsetHeight === 32);
-        if (spans.length) {{
-          spans[spans.length - 1].scrollIntoView({{ block: 'center' }});
-          spans[spans.length - 1].click();
-          console.log('clicked minute:', MM);
-        }}
-      }}, 500);
+      const wrps = document.querySelectorAll('.time-picker-panel-select-wrp');
+      if (!wrps.length) return null;
+      const hourCol = wrps[0];
+      const target = [...hourCol.querySelectorAll('.time-picker-panel-select-item')]
+        .find(e => e.textContent.trim() === '{hh}');
+      if (!target) return null;
+      target.scrollIntoView({{ block: 'center' }});
+      const r = target.getBoundingClientRect();
+      return {{ x: r.x + r.width / 2, y: r.y + r.height / 2 }};
     }}
     """)
+    if hour_coords:
+        await page.mouse.click(hour_coords['x'], hour_coords['y'])
+        log(f"[B站] 点击小时: {hh}")
+    await asyncio.sleep(1)
+
+    # 选分钟
+    min_coords = await page.evaluate(f"""
+    () => {{
+      const wrps = document.querySelectorAll('.time-picker-panel-select-wrp');
+      if (wrps.length < 2) return null;
+      const minCol = wrps[1];
+      const target = [...minCol.querySelectorAll('.time-picker-panel-select-item')]
+        .find(e => e.textContent.trim() === '{mm}');
+      if (!target) return null;
+      target.scrollIntoView({{ block: 'center' }});
+      const r = target.getBoundingClientRect();
+      return {{ x: r.x + r.width / 2, y: r.y + r.height / 2 }};
+    }}
+    """)
+    if min_coords:
+        await page.mouse.click(min_coords['x'], min_coords['y'])
+        log(f"[B站] 点击分钟: {mm}")
     await asyncio.sleep(2)
 
     # Step 5: 关闭面板 + 验证
