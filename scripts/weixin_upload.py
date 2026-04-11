@@ -241,7 +241,14 @@ async def set_cover(page, cover34_path: str):
 
 async def fill_desc(page, desc: str):
     log("[视频号] 填写描述")
-    await page.locator("div.input-editor").click()
+    # 先尝试关闭可能的遮罩层
+    try:
+        await page.evaluate("() => { document.querySelector('.setting-cover-mask')?.remove(); }")
+        await asyncio.sleep(0.5)
+    except:
+        pass
+    # 使用 force=True 强制点击，绕过遮罩层
+    await page.locator("div.input-editor").click(force=True)
     await page.keyboard.type(desc)
     await asyncio.sleep(1)
 
