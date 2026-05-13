@@ -13,7 +13,17 @@ import sys
 import re
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import log_argv,  connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
+from cdp_base import (
+    log_argv,
+    connect_browser,
+    safe_disconnect,
+    new_tab,
+    log,
+    exit_published,
+    exit_need_login,
+    exit_failed,
+    set_file_input_files_via_cdp,
+)
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"
 CREATE_URL = "https://channels.weixin.qq.com/platform/post/create"
@@ -63,6 +73,15 @@ async def upload_video(page, video_path: str):
             break
     if not wujie_ready:
         log("[视频号] 等待 wujie 超时（60s），尝试直接上传")
+
+    if await set_file_input_files_via_cdp(
+        page,
+        video_path,
+        accept_keywords=["video", ".mp4"],
+        token_prefix="omc-wx-video-input",
+    ):
+        log("[视频号] 视频文件已选择(CDP)")
+        return
 
     # 在 Shadow DOM 中找 file input，Pierce 选择器可穿透 shadow DOM
     try:

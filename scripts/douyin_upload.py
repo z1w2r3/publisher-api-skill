@@ -19,7 +19,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import log_argv,  connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
+from cdp_base import (
+    log_argv,
+    connect_browser,
+    safe_disconnect,
+    new_tab,
+    log,
+    exit_published,
+    exit_need_login,
+    exit_failed,
+    set_file_input_files_via_cdp,
+)
 
 MANAGE_URL = "https://creator.douyin.com/creator-micro/content/manage"
 UPLOAD_URL = "https://creator.douyin.com/creator-micro/content/upload"
@@ -39,6 +49,15 @@ async def check_login_and_duplicate(page, title: str) -> dict:
 
 async def upload_video(page, video_path: str):
     log(f"[抖音] 上传视频: {video_path}")
+    if await set_file_input_files_via_cdp(
+        page,
+        video_path,
+        accept_keywords=["video", ".mp4"],
+        token_prefix="omc-dy-video-input",
+    ):
+        log("[抖音] 视频文件已选择(CDP)")
+        return
+
     inputs = await page.query_selector_all("input[type=file]")
     for inp in inputs:
         acc = await inp.get_attribute("accept") or ""

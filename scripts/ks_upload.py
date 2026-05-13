@@ -75,7 +75,10 @@ async def wait_upload_done(page, timeout=300):
         await asyncio.sleep(5)
         try:
             text = await page.evaluate("() => document.body.innerText")
-            if '发布' in text and ('描述' in text or '封面' in text):
+            if '上传中' in text or '正在上传' in text:
+                log(f"[快手] 上传中（{(i+1)*5}s）")
+                continue
+            if '重新上传' in text and '发布' in text and ('描述' in text or '封面' in text):
                 log(f"[快手] 上传完成（{(i+1)*5}s）")
                 return True
         except:
