@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,6 +24,58 @@ from cdp_base import log_argv, connect_browser, safe_disconnect, new_tab, log, e
 
 MANAGE_URL = "https://member.bilibili.com/platform/upload-manager/article"
 UPLOAD_URL = "https://member.bilibili.com/platform/upload/video/frame"
+
+
+async def set_video_file_via_cdp(page, video_path: str) -> bool:
+    """通过 CDP 直接传浏览器本机路径，避免 Playwright CDP 模式 50MB 文件传输限制。"""
+    token = f"omc-video-input-{int(time.time() * 1000)}"
+    target = await page.evaluate("""
+    (token) => {
+      const preferred = document.querySelector('.bcc-upload-wrapper input[type=file]');
+      const inputs = [...document.querySelectorAll('input[type=file]')];
+      const byAccept = inputs.find(e => {
+        const accept = e.getAttribute('accept') || '';
+        return accept.includes('.mp4') || accept.includes('video');
+      });
+      const input = preferred || byAccept;
+      if (!input) return { success: false, error: '视频上传 input 未找到' };
+      input.setAttribute('data-omc-file-input-token', token);
+      return { success: true, accept: input.getAttribute('accept') || '', hidden: getComputedStyle(input).display === 'none' };
+    }
+    """, token)
+    if not target.get('success'):
+        log(f"[B站] CDP 设置视频文件失败: {target.get('error')}")
+        return False
+
+    client = await page.context.new_cdp_session(page)
+    doc = await client.send('DOM.getDocument', {'depth': -1, 'pierce': True})
+    node = await client.send('DOM.querySelector', {
+        'nodeId': doc['root']['nodeId'],
+        'selector': f'input[data-omc-file-input-token="{token}"]',
+    })
+    node_id = node.get('nodeId')
+    if not node_id:
+        log("[B站] CDP 设置视频文件失败: input nodeId 未找到")
+        return False
+
+    await client.send('DOM.setFileInputFiles', {'nodeId': node_id, 'files': [video_path]})
+    verified = await page.evaluate("""
+    (token) => {
+      const input = document.querySelector(`input[data-omc-file-input-token="${token}"]`);
+      const file = input?.files?.[0];
+      if (input) {
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.removeAttribute('data-omc-file-input-token');
+      }
+      return file ? { success: true, name: file.name, size: file.size } : { success: false };
+    }
+    """, token)
+    if verified.get('success'):
+        log(f"[B站] 视频文件已选择(CDP): {verified.get('name')} {verified.get('size')} bytes")
+        return True
+    log("[B站] CDP 设置视频文件失败: files 为空")
+    return False
 
 
 async def check_login_and_duplicate(page, title: str) -> dict:
@@ -41,7 +94,7 @@ async def check_login_and_duplicate(page, title: str) -> dict:
 
 
 async def upload_video(page, video_path: str):
-    """上传视频文件 - 使用 expect_file_chooser 触发真实上传"""
+    """上传视频文件"""
     log(f"[B站] 上传视频: {video_path}")
 
     # 关闭可能的"不用了"弹窗
@@ -53,6 +106,9 @@ async def upload_video(page, video_path: str):
     }
     """)
     await asyncio.sleep(1)
+
+    if await set_video_file_via_cdp(page, video_path):
+        return
 
     # 点击上传区域触发文件选择器
     log("[B站] 点击上传区域...")
@@ -484,6 +540,83 @@ async def publish(page) -> bool:
     return False
 
 
+async def select_creation_declaration(page, option_text: str = "含AI生成内容"):
+    """选择 B站创作声明。新版页面下拉框在标题的兄弟节点里，不能从 h3 父级向下找。"""
+    log(f"[B站] 选择创作声明: {option_text}")
+    opened = await page.evaluate("""
+    (optionText) => {
+      const title = [...document.querySelectorAll('h3')]
+        .find(e => e.textContent.trim() === '创作声明');
+      const root = document.querySelector('.creation-statement-container')
+        || title?.closest('.form-item')
+        || title?.closest('.statement-main');
+      if (!root) return { success: false, error: '创作声明容器未找到' };
+
+      const input = root.querySelector('.bcc-select-input-inner, input[placeholder*="创作声明"]');
+      if (!input) {
+        return {
+          success: false,
+          error: '创作声明下拉框未找到',
+          html: root.outerHTML.slice(0, 500)
+        };
+      }
+
+      if ((input.value || '').trim() === optionText) {
+        return { success: true, already: true, value: input.value };
+      }
+
+      input.scrollIntoView({ block: 'center' });
+      input.click();
+      return { success: true, opened: true };
+    }
+    """, option_text)
+    if not opened.get('success'):
+        exit_failed(f"B站：创作声明打开失败：{opened.get('error')}")
+    if opened.get('already'):
+        log(f"[B站] 创作声明已选择: {opened.get('value')}")
+        return
+
+    await asyncio.sleep(1)
+    selected = await page.evaluate("""
+    (optionText) => {
+      const root = document.querySelector('.creation-statement-container');
+      if (!root) return { success: false, error: '创作声明容器未找到' };
+
+      const options = [...root.querySelectorAll('.bcc-option')]
+        .filter(e => {
+          const r = e.getBoundingClientRect();
+          return (r.width || r.height || e.getClientRects().length)
+            && getComputedStyle(e).display !== 'none';
+        });
+      const option = options.find(e => e.textContent.trim() === optionText);
+      if (!option) {
+        return {
+          success: false,
+          error: '创作声明选项未找到',
+          options: options.map(e => e.textContent.trim()).filter(Boolean)
+        };
+      }
+      option.click();
+      return { success: true, clicked: option.textContent.trim() };
+    }
+    """, option_text)
+    if not selected.get('success'):
+        exit_failed(f"B站：创作声明选择失败：{selected.get('error')} options={selected.get('options')}")
+
+    await asyncio.sleep(1)
+    verified = await page.evaluate("""
+    (optionText) => {
+      const input = document
+        .querySelector('.creation-statement-container .bcc-select-input-inner, .creation-statement-container input[placeholder*="创作声明"]');
+      const value = (input?.value || '').trim();
+      return { success: value === optionText, value };
+    }
+    """, option_text)
+    if not verified.get('success'):
+        exit_failed(f"B站：创作声明未生效，当前值={verified.get('value')}")
+    log(f"[B站] 创作声明已选择: {verified.get('value')}")
+
+
 async def main():
     log_argv()
     parser = argparse.ArgumentParser()
@@ -558,11 +691,14 @@ async def main():
         # 6. 简介
         await fill_desc(page, args.desc)
 
-        # 7. 定时
+        # 7. 创作声明（必选）
+        await select_creation_declaration(page)
+
+        # 8. 定时
         if args.dtime:
             await set_schedule(page, args.dtime)
 
-        # 8. 投稿 + 验证
+        # 9. 投稿 + 验证
         ok = await publish(page)
         if ok:
             exit_published(args.dtime)
