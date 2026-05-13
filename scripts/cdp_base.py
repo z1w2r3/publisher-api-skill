@@ -4,6 +4,8 @@ import asyncio
 import os
 import subprocess
 import sys
+import time
+from typing import List, Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
 
 CDP_URL = "http://127.0.0.1:18800"
@@ -105,6 +107,67 @@ end tell
 
 def log(msg: str):
     print(msg, flush=True)
+
+
+async def set_file_input_files_via_cdp(
+    page: Page,
+    file_path: str,
+    *,
+    selector: str = "",
+    accept_keywords: Optional[List[str]] = None,
+    token_prefix: str = "omc-file-input",
+) -> bool:
+    """通过 CDP 传浏览器本机路径，避免 Playwright CDP 模式 50MB 文件传输限制。"""
+    token = f"{token_prefix}-{int(time.time() * 1000)}"
+    keywords = accept_keywords or []
+    target = await page.evaluate("""
+    ({ selector, keywords, token }) => {
+      let input = selector ? document.querySelector(selector) : null;
+      if (!input) {
+        const inputs = [...document.querySelectorAll('input[type=file]')];
+        input = inputs.find(e => {
+          const accept = e.getAttribute('accept') || '';
+          return keywords.some(k => accept.includes(k));
+        }) || inputs[0];
+      }
+      if (!input) return { success: false, error: 'file input 未找到' };
+      input.setAttribute('data-omc-file-input-token', token);
+      return { success: true, accept: input.getAttribute('accept') || '' };
+    }
+    """, {"selector": selector, "keywords": keywords, "token": token})
+    if not target.get("success"):
+        log(f"[CDP] 设置文件失败: {target.get('error')}")
+        return False
+
+    client = await page.context.new_cdp_session(page)
+    doc = await client.send("DOM.getDocument", {"depth": -1, "pierce": True})
+    node = await client.send("DOM.querySelector", {
+        "nodeId": doc["root"]["nodeId"],
+        "selector": f'input[data-omc-file-input-token="{token}"]',
+    })
+    node_id = node.get("nodeId")
+    if not node_id:
+        log("[CDP] 设置文件失败: input nodeId 未找到")
+        return False
+
+    await client.send("DOM.setFileInputFiles", {"nodeId": node_id, "files": [file_path]})
+    verified = await page.evaluate("""
+    (token) => {
+      const input = document.querySelector(`input[data-omc-file-input-token="${token}"]`);
+      const file = input?.files?.[0];
+      if (input) {
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.removeAttribute('data-omc-file-input-token');
+      }
+      return file ? { success: true, name: file.name, size: file.size } : { success: false };
+    }
+    """, token)
+    if verified.get("success"):
+        log(f"[CDP] 文件已选择: {verified.get('name')} {verified.get('size')} bytes")
+        return True
+    log("[CDP] 设置文件失败: files 为空")
+    return False
 
 
 def log_argv():
