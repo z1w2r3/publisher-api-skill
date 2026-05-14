@@ -520,23 +520,32 @@ async def publish(page) -> bool:
       if (btn) btn.click();
     }
     """)
-    await asyncio.sleep(5)
 
     # 验证是否成功
-    for _ in range(3):
+    last = {}
+    for _ in range(8):
+        await asyncio.sleep(5)
         result = await page.evaluate("""
         () => ({
           url: location.href,
-          success: document.body.innerText.includes('稿件投递成功'),
-          body: document.body.innerText.substring(0, 200)
+          success: document.body.innerText.includes('稿件投递成功')
+            || document.body.innerText.includes('投稿成功'),
+          leftUploadForm: !location.href.includes('/platform/upload/video/frame')
+            && ![...document.querySelectorAll('*')]
+              .some(e => e.textContent.trim() === '立即投稿'
+                && e.offsetHeight > 0 && e.offsetHeight < 60),
+          body: document.body.innerText.substring(0, 300)
         })
         """)
+        last = result
         if result.get('success'):
             log("[B站] 稿件投递成功")
             return True
-        await asyncio.sleep(3)
+        if result.get('leftUploadForm'):
+            log(f"[B站] 投稿后已离开上传表单: {result.get('url')}")
+            return True
 
-    log(f"[B站] 未检测到成功状态: {result.get('body', '')[:100]}")
+    log(f"[B站] 未检测到成功状态: {last.get('body', '')[:160]}")
     return False
 
 

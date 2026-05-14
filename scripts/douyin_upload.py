@@ -299,14 +299,27 @@ async def set_schedule(page, dtime: str):
     """)
     await asyncio.sleep(1)
 
+    try:
+        inp = page.locator('input[placeholder="日期和时间"]').first
+        await inp.click(timeout=5000, force=True)
+        await inp.fill(dtime_short, timeout=5000)
+        await inp.press("Enter")
+        await asyncio.sleep(1)
+        await page.keyboard.press("Escape")
+    except Exception as e:
+        log(f"[抖音] 定时输入框 fill 失败，尝试 JS 设置: {e}")
+
     await page.evaluate("""
     (val) => {
       const inp = document.querySelector('input[placeholder="日期和时间"]');
       if (!inp) return;
+      inp.removeAttribute('readonly');
       const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      inp.focus();
       nativeSet.call(inp, val);
-      inp.dispatchEvent(new Event('input', {bubbles: true}));
+      inp.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertReplacementText', data: val}));
       inp.dispatchEvent(new Event('change', {bubbles: true}));
+      inp.blur();
     }
     """, dtime_short)
     await asyncio.sleep(0.8)
@@ -317,6 +330,135 @@ async def set_schedule(page, dtime: str):
         "() => document.querySelector('input[placeholder=\"日期和时间\"]')?.value"
     )
     log(f"[抖音] 定时验证: {val}")
+    return val == dtime_short
+
+
+async def set_declaration(page, option_text: str = "内容由AI生成"):
+    """新版抖音发布页必填自主声明；AI 视频默认选择“内容由AI生成”。"""
+    log(f"[抖音] 选择自主声明: {option_text}")
+
+    opened = await page.evaluate("""
+    (optionText) => {
+      const visible = (e) => {
+        const r = e.getBoundingClientRect();
+        return (r.width || r.height || e.getClientRects().length)
+          && getComputedStyle(e).visibility !== 'hidden'
+          && getComputedStyle(e).display !== 'none';
+      };
+      const all = [...document.querySelectorAll('*')].filter(visible);
+      const current = all.find(e => e.textContent.trim() === optionText);
+      const placeholder = all.find(e => e.textContent.trim() === '请选择自主声明');
+      if (!placeholder && current && !document.body.innerText.includes('对作品内容添加声明')) {
+        return { success: true, already: true };
+      }
+      const target = placeholder || all.find(e => e.textContent.includes('自主声明') && e.textContent.includes('请选择'));
+      if (!target) return { success: false, error: '自主声明入口未找到' };
+      const trigger = target.closest('button,[role=button],[class*=select],[class*=Select],[class*=declaration]')
+        || target;
+      trigger.scrollIntoView({ block: 'center' });
+      const r = trigger.getBoundingClientRect();
+      return { success: true, x: r.x + r.width / 2, y: r.y + r.height / 2, text: trigger.textContent.trim().slice(0, 100) };
+    }
+    """, option_text)
+    if not opened.get("success"):
+        exit_failed(f"抖音：自主声明打开失败：{opened.get('error')}")
+    if opened.get("already"):
+        log(f"[抖音] 自主声明已选择: {option_text}")
+        return
+
+    await page.mouse.click(opened["x"], opened["y"])
+    await asyncio.sleep(1)
+
+    selected = False
+    last_state = {}
+    for _ in range(3):
+        try:
+            label = page.locator("label.semi-radio").filter(has_text=option_text).first
+            await label.wait_for(state="visible", timeout=3000)
+            box = await label.bounding_box()
+            if box:
+                await page.mouse.click(box["x"] + 18, box["y"] + box["height"] / 2)
+            else:
+                await label.click(timeout=3000, force=True)
+        except Exception:
+            await page.evaluate("""
+            (optionText) => {
+              const visible = (e) => {
+                const r = e.getBoundingClientRect();
+                return (r.width || r.height || e.getClientRects().length)
+                  && getComputedStyle(e).visibility !== 'hidden'
+                  && getComputedStyle(e).display !== 'none';
+              };
+              const label = [...document.querySelectorAll('label.semi-radio,label,[role=radio]')]
+                .filter(visible)
+                .find(e => e.textContent.trim() === optionText);
+              const target = label?.querySelector('.semi-radio-addon,.semi-radio-inner-display,input')
+                || label;
+              if (target) {
+                target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                target.click();
+                target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+              }
+            }
+            """, option_text)
+
+        await asyncio.sleep(0.8)
+        last_state = await page.evaluate("""
+        () => {
+          const visible = (e) => {
+            const r = e.getBoundingClientRect();
+            return (r.width || r.height || e.getClientRects().length)
+              && getComputedStyle(e).visibility !== 'hidden'
+              && getComputedStyle(e).display !== 'none';
+          };
+          const ok = [...document.querySelectorAll('button')]
+            .filter(visible)
+            .find(e => e.textContent.trim() === '确定');
+          const checked = !!document.querySelector('label.semi-radio-checked,.semi-radio-checked,[aria-checked=true]');
+          return {
+            checked,
+            okEnabled: !!ok && !ok.disabled && ok.getAttribute('aria-disabled') !== 'true',
+            okText: ok?.textContent.trim() || '',
+          };
+        }
+        """)
+        if last_state.get("checked") or last_state.get("okEnabled"):
+            selected = True
+            break
+
+    if not selected:
+        exit_failed(f"抖音：自主声明选项未选中 state={last_state}")
+
+    confirmed = await page.evaluate("""
+    () => {
+      const visible = (e) => {
+        const r = e.getBoundingClientRect();
+        return (r.width || r.height || e.getClientRects().length)
+          && getComputedStyle(e).visibility !== 'hidden'
+          && getComputedStyle(e).display !== 'none';
+      };
+      const btn = [...document.querySelectorAll('button')]
+        .filter(visible)
+        .find(e => e.textContent.trim() === '确定' && !e.disabled && e.getAttribute('aria-disabled') !== 'true');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    }
+    """)
+    if not confirmed:
+        exit_failed("抖音：自主声明确定按钮不可用")
+
+    await asyncio.sleep(1.5)
+    verified = await page.evaluate("""
+    (optionText) => ({
+      modalOpen: document.body.innerText.includes('对作品内容添加声明'),
+      hasOption: document.body.innerText.includes(optionText),
+      stillPlaceholder: document.body.innerText.includes('请选择自主声明'),
+    })
+    """, option_text)
+    if verified.get("modalOpen") or verified.get("stillPlaceholder"):
+        exit_failed(f"抖音：自主声明未生效 state={verified}")
+    log(f"[抖音] 自主声明已选择: {option_text}")
 
 
 async def publish(page) -> bool:
@@ -328,10 +470,35 @@ async def publish(page) -> bool:
       if (btn) btn.click();
     }
     """)
-    await asyncio.sleep(8)
-    url  = await page.evaluate("() => location.href")
-    text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
-    return "manage" in url or "发布成功" in text or "upload" not in url
+    last = {}
+    for _ in range(12):
+        await asyncio.sleep(5)
+        last = await page.evaluate("""
+        () => {
+          const text = document.body.innerText || '';
+          const url = location.href;
+          const visible = (e) => {
+            const r = e.getBoundingClientRect();
+            return (r.width || r.height || e.getClientRects().length)
+              && getComputedStyle(e).visibility !== 'hidden'
+              && getComputedStyle(e).display !== 'none';
+          };
+          const hasPublishForm = (url.includes('/content/post/video') || url.includes('/content/upload'))
+            || (text.includes('自主声明') && text.includes('定时发布')
+              && [...document.querySelectorAll('button')].filter(visible).some(e => e.textContent.trim() === '发布'));
+          const success = url.includes('/content/manage')
+            || text.includes('发布成功')
+            || text.includes('作品管理');
+          return { url, success, hasPublishForm, body: text.slice(0, 300) };
+        }
+        """)
+        if last.get("success") and not last.get("hasPublishForm"):
+            log(f"[抖音] 发布成功状态: {last.get('url')}")
+            return True
+        if not last.get("hasPublishForm") and last.get("success"):
+            return True
+    log(f"[抖音] 未检测到成功状态: {last}")
+    return False
 
 
 async def main():
@@ -377,8 +544,12 @@ async def main():
         await page.keyboard.press("Escape")
         await asyncio.sleep(1)
 
+        await set_declaration(page)
+
         if args.dtime:
-            await set_schedule(page, args.dtime)
+            ok = await set_schedule(page, args.dtime)
+            if not ok:
+                exit_failed(f"抖音：定时设置未生效，期望 {args.dtime[:16]}")
 
         ok = await publish(page)
         if ok:
