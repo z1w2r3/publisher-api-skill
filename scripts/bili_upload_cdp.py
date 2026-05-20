@@ -510,42 +510,67 @@ async def set_schedule(page, dtime: str):
     log(f"[B站] 定时验证: {result}")
 
 
-async def publish(page) -> bool:
-    """点击立即投稿按钮"""
+async def publish(page, title: str) -> bool:
+    """点击投稿按钮，再回稿件列表正向确认投稿成功。
+
+    旧逻辑只认 '稿件投递成功' 文案 + '已离开上传表单' 反推，定时发布场景两者均失效：
+    成功文案不一致，且稿件管理页本身带 '立即投稿' 入口按钮使反推恒为假。
+    改为正向确认 —— 投稿后回 MANAGE_URL 稿件列表查标题（与 check_login_and_duplicate 同源）。
+    """
     log("[B站] 点击投稿")
-    await page.evaluate("""
+    clicked = await page.evaluate("""
     () => {
       const btn = [...document.querySelectorAll('*')]
-        .find(e => e.textContent.trim() === '立即投稿' && e.offsetHeight > 0 && e.offsetHeight < 60 && e.children.length === 0);
-      if (btn) btn.click();
+        .find(e => ['立即投稿', '定时发布'].includes(e.textContent.trim())
+          && e.offsetHeight > 0 && e.offsetHeight < 60 && e.children.length === 0);
+      if (btn) { btn.click(); return btn.textContent.trim(); }
+      return '';
     }
     """)
+    if clicked:
+        log(f"[B站] 已点击「{clicked}」按钮")
+    else:
+        log("[B站] ⚠️ 未找到投稿按钮（立即投稿 / 定时发布）")
 
-    # 验证是否成功
-    last = {}
-    for _ in range(8):
-        await asyncio.sleep(5)
-        result = await page.evaluate("""
-        () => ({
-          url: location.href,
-          success: document.body.innerText.includes('稿件投递成功')
-            || document.body.innerText.includes('投稿成功'),
-          leftUploadForm: !location.href.includes('/platform/upload/video/frame')
-            && ![...document.querySelectorAll('*')]
-              .some(e => e.textContent.trim() === '立即投稿'
-                && e.offsetHeight > 0 && e.offsetHeight < 60),
-          body: document.body.innerText.substring(0, 300)
-        })
+    # 快路径：投稿后页面直接出现成功文案 / 已跳离上传表单
+    for _ in range(5):
+        await asyncio.sleep(4)
+        hit = await page.evaluate("""
+        () => {
+          const t = document.body.innerText;
+          if (t.includes('稿件投递成功') || t.includes('投稿成功') || t.includes('定时发布成功'))
+            return 'success';
+          return location.href.includes('/platform/upload/video/frame') ? '' : 'left';
+        }
         """)
-        last = result
-        if result.get('success'):
-            log("[B站] 稿件投递成功")
+        if hit == 'success':
+            log("[B站] 稿件投递成功（页面文案命中）")
             return True
-        if result.get('leftUploadForm'):
-            log(f"[B站] 投稿后已离开上传表单: {result.get('url')}")
-            return True
+        if hit == 'left':
+            break
 
-    log(f"[B站] 未检测到成功状态: {last.get('body', '')[:160]}")
+    # 正向确认：回稿件列表查标题（定时稿提交后也会立即进列表）
+    for attempt in range(1, 4):
+        try:
+            await page.goto(MANAGE_URL, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            log(f"[B站] 稿件列表导航失败（{attempt}/3）：{e}")
+            await asyncio.sleep(3)
+            continue
+        await asyncio.sleep(4)
+        found = await page.evaluate("""
+        (title) => {
+          const core = s => s.replace(/[^\\u4e00-\\u9fff\\w]/g, '');
+          return core(document.body.innerText).includes(core(title));
+        }
+        """, title)
+        if found:
+            log("[B站] 稿件列表已出现该标题，确认投稿成功")
+            return True
+        log(f"[B站] 稿件列表暂未出现标题，等待重查（{attempt}/3）")
+        await asyncio.sleep(8)
+
+    log("[B站] 未在稿件列表确认到投稿结果")
     return False
 
 
@@ -708,7 +733,7 @@ async def main():
             await set_schedule(page, args.dtime)
 
         # 9. 投稿 + 验证
-        ok = await publish(page)
+        ok = await publish(page, args.title)
         if ok:
             exit_published(args.dtime)
         else:
