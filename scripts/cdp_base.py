@@ -199,11 +199,9 @@ async def set_file_input_files_via_cdp(
       };
       const input = find(document);
       const file = input?.files?.[0];
-      if (input) {
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        input.removeAttribute('data-omc-file-input-token');
-      }
+      // DOM.setFileInputFiles 已原生派发 input/change 事件；不能再手动派发，
+      // 否则上传组件收到两次 change → 同一文件上传两遍（B站会变重复分P）
+      if (input) input.removeAttribute('data-omc-file-input-token');
       return file ? { success: true, name: file.name, size: file.size } : { success: false };
     }
     """, token)
