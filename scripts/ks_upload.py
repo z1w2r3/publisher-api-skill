@@ -10,21 +10,12 @@
 import argparse
 import asyncio
 import os
+import re
 import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cdp_base import (
-    log_argv,
-    connect_browser,
-    safe_disconnect,
-    new_tab,
-    log,
-    exit_published,
-    exit_need_login,
-    exit_failed,
-    set_file_input_files_via_cdp,
-)
+from cdp_base import log_argv,  connect_browser, safe_disconnect, new_tab, log, exit_published, exit_need_login, exit_failed
 
 MANAGE_URL = "https://cp.kuaishou.com/article/manage/video"
 PUBLISH_URL = "https://cp.kuaishou.com/article/publish/video"
@@ -46,25 +37,24 @@ async def check_login_and_duplicate(page, dedup_kw: str) -> dict:
 
 async def upload_video(page, video_path: str):
     log(f"[快手] 上传视频: {video_path}")
-    if await set_file_input_files_via_cdp(
-        page,
-        video_path,
-        accept_keywords=["video", ".mp4"],
-        token_prefix="omc-ks-video-input",
-    ):
-        log("[快手] 视频文件已选择(CDP)")
-        return
-
-    inputs = await page.query_selector_all('input[type=file]')
+    # 快手发布页加载较慢, file input 常延迟渲染; 轮询等待最多 ~60s 再判失败,
+    # 避免页面没渲染好就立即报"找不到视频上传 input"(偶发时序问题, 之前多次成功后突然失败)
     target = None
-    for inp in inputs:
-        if 'video' in (await inp.get_attribute('accept') or ''):
-            target = inp
+    for attempt in range(24):
+        inputs = await page.query_selector_all('input[type=file]')
+        for inp in inputs:
+            if 'video' in (await inp.get_attribute('accept') or ''):
+                target = inp
+                break
+        if not target and inputs:
+            target = inputs[0]
+        if target:
+            if attempt > 0:
+                log(f"[快手] file input 在约 {int(attempt * 2.5)}s 后就绪")
             break
-    if not target and inputs:
-        target = inputs[0]
+        await asyncio.sleep(2.5)
     if not target:
-        exit_failed("快手：找不到视频上传 input")
+        exit_failed("快手：找不到视频上传 input（等待 60s 后页面仍无 input[type=file]）")
     await target.set_input_files(video_path)
     log("[快手] 视频文件已选择")
 
@@ -75,10 +65,7 @@ async def wait_upload_done(page, timeout=300):
         await asyncio.sleep(5)
         try:
             text = await page.evaluate("() => document.body.innerText")
-            if '上传中' in text or '正在上传' in text:
-                log(f"[快手] 上传中（{(i+1)*5}s）")
-                continue
-            if '重新上传' in text and '发布' in text and ('描述' in text or '封面' in text):
+            if '发布' in text and ('描述' in text or '封面' in text):
                 log(f"[快手] 上传完成（{(i+1)*5}s）")
                 return True
         except:
@@ -90,7 +77,25 @@ async def pause_video(page):
     await page.evaluate("() => { const v = document.querySelector('video'); if (v) v.pause(); }")
 
 
+def limit_topics(desc: str, max_topics: int = 4) -> str:
+    """快手最多 4 个话题; 超出的话题(#xxx)连同前导空白一并删除, 避免发布时被"话题超过4个"校验拦截。"""
+    count = 0
+
+    def repl(m):
+        nonlocal count
+        count += 1
+        return m.group(0) if count <= max_topics else ''
+
+    # 话题: # 开头, 后跟非空白非# 字符; 连同前导空白一起匹配以便整体删除多余项
+    return re.sub(r'\s*#[^#\s]+', repl, desc).rstrip()
+
+
 async def fill_desc(page, desc: str):
+    before = len((re.findall(r'#[^#\s]+', desc)))
+    desc = limit_topics(desc, 4)
+    after = len((re.findall(r'#[^#\s]+', desc)))
+    if before > after:
+        log(f"[快手] 话题超限: {before} 个 → 截断到 {after} 个 (快手上限 4)")
     log("[快手] 填写描述")
     result = await page.evaluate("""
     (desc) => {
@@ -318,23 +323,58 @@ async def set_schedule(page, dtime: str):
 
 async def publish(page) -> bool:
     log("[快手] 点击发布")
-    # 快手发布按钮是 DIV（class 含 button-primary），不是 <button>
-    await page.evaluate("""
-    () => {
-      const btn = [...document.querySelectorAll('div')]
-        .find(e => e.textContent.trim() === '发布'
-          && e.className.includes('button-primary') && e.offsetHeight > 0);
-      if (btn) { btn.click(); return; }
-      // 备用：任意含发布文字的可见元素
-      const fallback = [...document.querySelectorAll('*')]
-        .find(e => e.textContent.trim() === '发布' && e.offsetHeight > 0 && e.offsetHeight < 80);
-      if (fallback) fallback.click();
-    }
-    """)
-    await asyncio.sleep(8)
-    url = await page.evaluate("() => location.href")
-    text = await page.evaluate("() => document.body.innerText.slice(0, 200)")
-    return 'manage' in url or '发布成功' in text or 'publish/video' not in url
+    # 主发布按钮兼容两种: ① button-primary 文案"发布"(6/1 验证有效) ② publish-button 文案"发布作品"(新版)。
+    # 用 Playwright 真实点击(element.click)比 JS .click()更可靠触发快手 React 事件; 异常回退 JS click。
+    btn = None
+    label = ''
+    for c in await page.query_selector_all('div[class*="button-primary"]'):
+        try:
+            if (await c.inner_text()).strip() == '发布':
+                bx = await c.bounding_box()
+                if bx and bx['height'] > 0:
+                    btn, label = c, '发布'
+                    break
+        except Exception:
+            continue
+    if not btn:
+        for c in await page.query_selector_all('[class*="publish-button"]'):
+            try:
+                t = (await c.inner_text()).strip()
+                cur = await c.evaluate("e => getComputedStyle(e).cursor")
+                bx = await c.bounding_box()
+                if '发布' in t and bx and bx['height'] > 0 and cur == 'pointer':
+                    btn, label = c, '发布作品'
+                    break
+            except Exception:
+                continue
+    if not btn:
+        log("[快手] ⚠ 未找到发布按钮（页面结构可能又变）")
+        return False
+    log(f"[快手] 点击发布按钮：{label}")
+    try:
+        await btn.scroll_into_view_if_needed()
+        await btn.click(timeout=8000)
+    except Exception as e:
+        log(f"[快手] 真实点击异常, 回退 JS click: {str(e)[:50]}")
+        try:
+            await btn.evaluate("e => e.click()")
+        except Exception:
+            pass
+    # 点发布后页面跳转/成功提示可能较慢; 轮询检测最多 ~36s, 避免之前 sleep 8s 单次检测就误判 failed
+    # (b6193b8d 等"发布后未检测到成功状态"多为跳转慢的误判)。检测全文而非前 200 字符。
+    for i in range(12):
+        await asyncio.sleep(3)
+        try:
+            url = await page.evaluate("() => location.href")
+            text = await page.evaluate("() => document.body.innerText")
+        except Exception:
+            continue
+        if ('manage' in url or 'publish/video' not in url
+                or '发布成功' in text or '提交成功' in text or '已发布' in text):
+            log(f"[快手] 发布成功（检测于约 {(i + 1) * 3}s）")
+            return True
+    log("[快手] 轮询约 36s 仍未检测到发布成功标志")
+    return False
 
 
 async def main():
