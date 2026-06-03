@@ -71,7 +71,7 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--title', action='append', default=None)
     parser.add_argument('--brief', help='brief.json path; read platform-specific title')
-    parser.add_argument('--platform', help='platform key for --brief (douyin/kuaishou/weixin-channels)')
+    parser.add_argument('--platform', help='platform key for --brief (weixin-channels)')
     parser.add_argument('--scroll', type=int, default=3, help='滚动加载次数')
     args = parser.parse_args()
 
@@ -81,8 +81,8 @@ async def main():
             with open(args.brief, encoding='utf-8') as _bf:
                 _b = json.load(_bf)
             _pf = _b.get(args.platform) or {}
-            _t = (_pf.get('title') or _pf.get('short_title')
-                  or ((_pf.get('desc') or '').split('\n')[0].strip() or None))
+            _t = (((_pf.get('desc') or '').split('\n')[0].strip() or None)
+                  or _pf.get('short_title') or _pf.get('title'))
             if _t:
                 titles.append(_t)
         except Exception as _e:
