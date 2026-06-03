@@ -55,11 +55,29 @@ async def scrape_page(page):
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--title', action='append', required=True)
+    parser.add_argument('--title', action='append', default=None)
+    parser.add_argument('--brief', help='brief.json path; read platform-specific title')
+    parser.add_argument('--platform', help='platform key for --brief (douyin/kuaishou/weixin-channels)')
     parser.add_argument('--pages', type=int, default=3)
     args = parser.parse_args()
 
-    kws = [t[:15] for t in args.title]
+    titles = list(args.title or [])
+    if args.brief and args.platform:
+        try:
+            with open(args.brief, encoding='utf-8') as _bf:
+                _b = json.load(_bf)
+            _pf = _b.get(args.platform) or {}
+            _t = (_pf.get('title') or _pf.get('short_title')
+                  or ((_pf.get('desc') or '').split('\n')[0].strip() or None))
+            if _t:
+                titles.append(_t)
+        except Exception as _e:
+            print('FAILED error=brief read failed: %s' % _e, flush=True)
+    if not titles:
+        print('FAILED error=need --title or --brief+--platform', flush=True)
+        sys.exit(1)
+
+    kws = [t[:15] for t in titles]
     matched = {}
     pending_kws = set()
 

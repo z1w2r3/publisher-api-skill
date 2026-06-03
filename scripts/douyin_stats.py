@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-抖音数据回收脚本
+抖音数据回收脚本（video-card DOM 提取版）
 用法：python3 douyin_stats.py --title "视频标题前10字" [--title "另一个"] [--pages 3]
 
 输出：
@@ -15,20 +15,6 @@ from cdp_base import connect_browser, safe_disconnect
 
 LIST_URL = "https://creator.douyin.com/creator-micro/content/manage"
 
-# 已发布：...编辑作品\n设置权限\n作品置顶\n删除作品\n日期\n已发布\n播放\n数\n点赞\n数\n评论\n数\n分享\n数
-PUBLISHED_PATTERN = re.compile(
-    r'(.+?)\n编辑作品\n设置权限\n作品置顶\n删除作品\n'
-    r'\d{4}年\d{2}月\d{2}日 [\d:]+\n已发布\n'
-    r'播放\n(\d[\d,.万]*)\n点赞\n(\d[\d,.万]*)\n评论\n(\d[\d,.万]*)\n分享\n(\d[\d,.万]*)',
-    re.DOTALL
-)
-
-# 定时待发布：...继续编辑\n作品置顶\n删除作品\n定时发布中\n...
-PENDING_PATTERN = re.compile(
-    r'(.+?)\n继续编辑\n作品置顶\n删除作品\n定时发布中\n',
-    re.DOTALL
-)
-
 def parse_num(s):
     s = s.strip().replace(',', '')
     if '万' in s:
@@ -38,44 +24,101 @@ def parse_num(s):
     except Exception:
         return 0
 
-def extract_title(block):
-    """从标题段提取最后一段有意义的文字"""
-    lines = [l.strip() for l in block.split('\n') if l.strip()]
-    # 找最后一行包含中文的（过滤时长格式 00:00）
-    for line in reversed(lines):
-        if re.search(r'[\u4e00-\u9fff]', line) and not re.match(r'^\d{2}:\d{2}$', line):
-            return line
-    return lines[-1] if lines else ''
+def extract_title(text_before_buttons):
+    """从视频卡片文本中提取标题"""
+    # 去掉按钮文字
+    text = text_before_buttons
+    text = text.replace('编辑作品', '').replace('设置权限', '').replace('作品置顶', '')
+    text = text.replace('继续编辑', '').replace('修改定时', '')
+    text = text.replace('已智能生成章节要点，确认并添加，可以使视频结构更清晰', '')
+    # 取#号之前的文字
+    parts = text.split('#')
+    title_part = parts[0].strip() if parts else text
+    # 去掉时长前缀如 01:21
+    title_part = re.sub(r'^\d{2}:\d{2}', '', title_part).strip()
+    # 标题通常是第一句，到第一个句号/问号/叹号为止（允许空格在标题中）
+    m = re.match(r'(.{3,40}?)[。！？，]', title_part)
+    if m:
+        return m.group(1).strip()
+    # 备用：取前35字
+    return title_part[:35].strip()
 
 async def scrape_page(page):
-    text = await page.evaluate("() => document.body.innerText")
+    """从 video-card DOM 元素提取视频列表"""
+    cards = await page.evaluate("""function() {
+        var cards = document.querySelectorAll('[class*="video-card"]');
+        return Array.from(cards).map(function(card) {
+            return card.textContent || '';
+        }).filter(function(t) { return t.length > 80 && t.indexOf('删除作品') >= 0; });
+    }""")
+    
     results = []
-
-    for m in PUBLISHED_PATTERN.finditer(text):
-        title = extract_title(m.group(1))
-        results.append({
-            'title':    title,
-            'pending':  False,
-            'views':    parse_num(m.group(2)),
-            'likes':    parse_num(m.group(3)),
-            'comments': parse_num(m.group(4)),
-            'shares':   parse_num(m.group(5)),
-        })
-
-    for m in PENDING_PATTERN.finditer(text):
-        title = extract_title(m.group(1))
-        results.append({'title': title, 'pending': True,
-                        'views': 0, 'likes': 0, 'comments': 0, 'shares': 0})
-
+    seen = set()
+    
+    for text in cards:
+        # 已发布：...删除作品YYYY年MM月DD日 HH:MM已发布播放N点赞N评论N分享N（无空格）
+        m_pub = re.search(
+            r'删除作品(\d{4}年\d{2}月\d{2}日 [\d:]+)已发布'
+            r'播放(\d[\d,.万]*)点赞(\d[\d,.万]*)评论(\d[\d,.万]*)分享(\d[\d,.万]*)',
+            text
+        )
+        if m_pub:
+            before = text[:m_pub.start()]
+            title = extract_title(before)
+            
+            if title and title not in seen:
+                seen.add(title)
+                results.append({
+                    'title': title,
+                    'pending': False,
+                    'views': parse_num(m_pub.group(2)),
+                    'likes': parse_num(m_pub.group(3)),
+                    'comments': parse_num(m_pub.group(4)),
+                    'shares': parse_num(m_pub.group(5)),
+                })
+            continue
+        
+        # 定时待发布：...删除作品定时发布中定时: ...
+        m_pen = re.search(r'删除作品定时发布中定时: (\d{4}年\d{2}月\d{2}日 [\d:]+)', text)
+        if m_pen:
+            before = text[:m_pen.start()]
+            title = extract_title(before)
+            
+            if title and title not in seen:
+                seen.add(title)
+                results.append({
+                    'title': title,
+                    'pending': True,
+                    'views': 0, 'likes': 0, 'comments': 0, 'shares': 0,
+                })
+    
     return results
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--title', action='append', required=True)
+    parser.add_argument('--title', action='append', default=None)
+    parser.add_argument('--brief', help='brief.json path; read platform-specific title')
+    parser.add_argument('--platform', help='platform key for --brief (douyin/kuaishou/weixin-channels)')
     parser.add_argument('--pages', type=int, default=3)
     args = parser.parse_args()
 
-    kws = [t[:15] for t in args.title]
+    titles = list(args.title or [])
+    if args.brief and args.platform:
+        try:
+            with open(args.brief, encoding='utf-8') as _bf:
+                _b = json.load(_bf)
+            _pf = _b.get(args.platform) or {}
+            _t = (_pf.get('title') or _pf.get('short_title')
+                  or ((_pf.get('desc') or '').split('\n')[0].strip() or None))
+            if _t:
+                titles.append(_t)
+        except Exception as _e:
+            print('FAILED error=brief read failed: %s' % _e, flush=True)
+    if not titles:
+        print('FAILED error=need --title or --brief+--platform', flush=True)
+        sys.exit(1)
+
+    kws = [t[:15] for t in titles]
     matched = {}
     pending_kws = set()
 
