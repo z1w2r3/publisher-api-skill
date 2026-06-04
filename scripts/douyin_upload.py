@@ -159,8 +159,8 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
 
     流程：
       1. 点"选择封面"打开弹窗
-      2. mouse.click "上传封面"按钮 + expect_file_chooser → 竖封面
-      3. 点"设置横封面" → 轮询等按钮重新出现 → mouse.click + expect_file_chooser → 横封面
+      2. CDP 直传（set_file_input_files_via_cdp）→ 竖封面（不触发原生文件对话框）
+      3. 点"设置横封面" → 轮询等上传控件出现 → CDP 直传 → 横封面
       4. 点"完成"关弹窗
     """
     if not cover34_path and not cover43_path:
@@ -207,17 +207,6 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
         && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60))
     """
 
-    GET_UPLOAD_BTN_COORDS_JS = """
-    () => {
-      const el = [...document.querySelectorAll('*')]
-        .find(e => e.textContent.trim() === '上传封面'
-          && e.offsetHeight > 0 && e.offsetHeight < 60 && e.offsetWidth > 60);
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }
-    """
-
     async def wait_upload_btn(timeout_s=60, label=""):
         """轮询等"上传封面"按钮出现，最多 timeout_s 秒"""
         for i in range(timeout_s // 2):
@@ -230,27 +219,25 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
         return False
 
     async def upload_via_btn(cover_path, label, max_retries=2):
-        """上传封面，失败自动重试"""
+        """上传封面：复用视频上传同款 CDP 直传（set_file_input_files_via_cdp），
+        直接给封面 file input 设值，不触发原生文件选择对话框 ——
+        根治“系统文件选择框未正确选择/关闭”导致的封面上传失败。
+        用 image accept 关键词锁定封面 input（视频 input 的 accept 为 video，不会误选）。"""
         for attempt in range(max_retries):
-            coords = await page.evaluate(GET_UPLOAD_BTN_COORDS_JS)
-            if not coords:
-                log(f"[抖音] {label}：未找到上传封面按钮（第{attempt+1}次）")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(3)
-                continue
-            try:
-                async with page.expect_file_chooser(timeout=15000) as fc_info:
-                    await page.mouse.click(coords['x'], coords['y'])
-                fc = await fc_info.value
-                await fc.set_files(cover_path)
-                log(f"[抖音] {label} 上传成功")
+            ok = await set_file_input_files_via_cdp(
+                page,
+                cover_path,
+                accept_keywords=["image", ".png", ".jpg", ".jpeg", ".webp"],
+                token_prefix="omc-dy-cover-input",
+            )
+            if ok:
+                log(f"[抖音] {label} 上传成功（CDP 直传）")
                 # 等封面渲染预览完成
                 await asyncio.sleep(5)
                 return True
-            except Exception as e:
-                log(f"[抖音] {label} 上传失败（第{attempt+1}次）: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(3)
+            log(f"[抖音] {label} 上传失败（第{attempt+1}次）")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(3)
         return False
 
     if cover34_path and os.path.exists(cover34_path):
