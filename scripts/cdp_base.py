@@ -24,6 +24,73 @@ async def safe_disconnect(pw, browser):
         await pw.stop()
     except Exception:
         pass
+
+
+async def load_and_collect_json(browser, url, match_substrs, *,
+                                scrolls=4, settle=6.0, wait=2.0, bring_front=True):
+    """打开 url，拦截 URL 含 match_substrs 之一的 JSON 响应体，滚动触发分页。
+    返回 (page, bodies)。调用方负责 page.close()。
+    用于数据回收批量模式：一次加载拿全部视频，不抠 DOM。"""
+    if isinstance(match_substrs, str):
+        match_substrs = [match_substrs]
+    page = await browser.contexts[0].new_page()
+    if bring_front:
+        try: await page.bring_to_front()
+        except Exception: pass
+    bodies = []
+
+    async def _grab(resp):
+        try:
+            u = resp.url
+            if any(m in u for m in match_substrs) and "json" in resp.headers.get("content-type", ""):
+                bodies.append(await resp.json())
+        except Exception:
+            pass
+
+    page.on("response", lambda r: asyncio.create_task(_grab(r)))
+    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    if bring_front:
+        try: await page.bring_to_front()
+        except Exception: pass
+    await asyncio.sleep(settle)
+    # 滚动「内部可滚动容器」到底(很多后台列表在 div 容器里滚，不是 window)以触发懒加载/翻页
+    for _ in range(scrolls):
+        try:
+            await page.evaluate(
+                "() => {"
+                "  const els = [...document.querySelectorAll('div,main,section,ul')]"
+                "    .filter(e => e.scrollHeight > e.clientHeight + 300);"
+                "  els.sort((a, b) => b.scrollHeight - a.scrollHeight);"
+                "  for (const e of els.slice(0, 3)) e.scrollTop = e.scrollHeight;"
+                "  window.scrollTo(0, 99999);"
+                "}")
+        except Exception:
+            pass
+        await asyncio.sleep(wait)
+    return page, bodies
+
+
+def find_dict_list(obj, required_any, depth=0):
+    """递归找第一个 list-of-dict，且首项含 required_any 中任一 key。找不到返回 []。"""
+    if depth > 7:
+        return []
+    if isinstance(obj, list) and obj and isinstance(obj[0], dict):
+        keys = set(obj[0].keys())
+        if keys & set(required_any):
+            return obj
+    if isinstance(obj, dict):
+        for v in obj.values():
+            r = find_dict_list(v, required_any, depth + 1)
+            if r:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = find_dict_list(v, required_any, depth + 1)
+            if r:
+                return r
+    return []
+
+
 async def get_or_create_page(browser, url: str = None) -> Page:
     """获取已有 context 的 page，或新建 page"""
     contexts = browser.contexts

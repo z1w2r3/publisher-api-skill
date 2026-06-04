@@ -45,13 +45,70 @@ def fetch_stat(bvid, cookie_str):
         "favorites": s.get("favorite", 0),
     }
 
+def list_archives(cookie_str, max_videos=80):
+    """批量列出投稿（含 stat），免 per-bvid。state==0 为已开放浏览，其余视为 pending。"""
+    out = []
+    pn, ps = 1, 50
+    headers = {
+        "Cookie": cookie_str,
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": "https://member.bilibili.com/platform/upload-manager/article",
+    }
+    while len(out) < max_videos:
+        url = (f"https://member.bilibili.com/x/web/archives"
+               f"?status=is_pubing,pubed,not_pubed&pn={pn}&ps={ps}")
+        req = urllib.request.Request(url, headers=headers)
+        data = json.load(urllib.request.urlopen(req, timeout=20))
+        if data.get("code") != 0:
+            break
+        d = data.get("data") or {}
+        arcs = d.get("arc_audits") or []
+        if not arcs:
+            break
+        for it in arcs:
+            a = it.get("Archive") or {}
+            s = it.get("stat") or {}
+            state = a.get("state")
+            out.append({
+                "id":        a.get("bvid"),
+                "title":     a.get("title") or "",
+                "views":     s.get("view", 0),
+                "likes":     s.get("like", 0),
+                "comments":  s.get("reply", 0),
+                "shares":    s.get("share", 0),
+                "favorites": s.get("favorite", 0),
+                "coins":     s.get("coin", 0),
+                "danmaku":   s.get("danmaku", 0),
+                "pending":   state != 0,
+            })
+        count = (d.get("page") or {}).get("count", 0)
+        if pn * ps >= count:
+            break
+        pn += 1
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cookie", default=COOKIE_PATH)
-    parser.add_argument("--bvid", action="append", required=True)
+    parser.add_argument("--bvid", action="append")
+    parser.add_argument("--list", action="store_true", help="批量列出全部投稿+stat（一次拿全部）")
+    parser.add_argument("--max", type=int, default=80)
     args = parser.parse_args()
 
     cookie_str = load_cookie(args.cookie)
+
+    if args.list:
+        videos = list_archives(cookie_str, args.max)
+        print("STATS_BATCH " + json.dumps(
+            {"platform": "bilibili", "count": len(videos), "videos": videos},
+            ensure_ascii=False), flush=True)
+        sys.exit(0)
+
+    if not args.bvid:
+        print("FAILED error=need --bvid or --list", flush=True)
+        sys.exit(1)
+
     has_error = False
 
     for bvid in args.bvid:

@@ -9,11 +9,70 @@
   FAILED title_kw=xxx error=...
 exit 0: 全部命中（含PENDING），exit 1: 未找到
 """
-import argparse, asyncio, json, re, sys
+import argparse, asyncio, json, re, sys, time
 sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
-from cdp_base import connect_browser, safe_disconnect
+from cdp_base import connect_browser, safe_disconnect, load_and_collect_json
 
 LIST_URL = "https://creator.douyin.com/creator-micro/content/manage"
+
+
+async def list_all(max_videos=80):
+    """批量：加载 manage 页（拦截初始 work_list）+ page.evaluate fetch 翻页（work_list 无签名，cookie 即可）。"""
+    pw, browser = await connect_browser()
+    videos, seen = [], set()
+
+    def add(al):
+        now = time.time()
+        for it in (al or []):
+            aid = it.get("aweme_id")
+            if not aid or aid in seen:
+                continue
+            seen.add(aid)
+            st = it.get("statistics") or {}
+            ct = it.get("create_time") or 0
+            videos.append({
+                "id":        aid,
+                "title":     it.get("desc") or "",
+                "views":     st.get("play_count", 0),
+                "likes":     st.get("digg_count", 0),
+                "comments":  st.get("comment_count", 0),
+                "shares":    st.get("share_count", 0),
+                "favorites": st.get("collect_count", 0),
+                "pending":   bool(ct) and ct > now,
+            })
+
+    try:
+        page, bodies = await load_and_collect_json(
+            browser, LIST_URL, "work_list", scrolls=1, settle=6.0)
+        for b in bodies:
+            add(b.get("aweme_list"))
+        cursor = 0
+        for _ in range(6):
+            if len(videos) >= max_videos:
+                break
+            try:
+                res = await page.evaluate("""async (cursor) => {
+                    const url = `/janus/douyin/creator/pc/work_list?status=0&count=20&max_cursor=${cursor}&scene=star_atlas&device_platform=android&aid=1128`;
+                    const r = await fetch(url, { credentials: 'include' });
+                    return await r.json();
+                }""", cursor)
+            except Exception:
+                break
+            al = (res or {}).get("aweme_list") or []
+            if not al:
+                break
+            add(al)
+            if not res.get("has_more"):
+                break
+            nc = res.get("max_cursor")
+            if not nc or nc == cursor:
+                break
+            cursor = nc
+        try: await page.close()
+        except Exception: pass
+    finally:
+        await safe_disconnect(pw, browser)
+    return videos
 
 def parse_num(s):
     s = s.strip().replace(',', '')
@@ -100,7 +159,16 @@ async def main():
     parser.add_argument('--brief', help='brief.json path; read platform-specific title')
     parser.add_argument('--platform', help='platform key for --brief (douyin/kuaishou/weixin-channels)')
     parser.add_argument('--pages', type=int, default=3)
+    parser.add_argument('--list', action='store_true', help='批量列出全部视频+stat（一次加载）')
+    parser.add_argument('--max', type=int, default=80)
     args = parser.parse_args()
+
+    if args.list:
+        videos = await list_all(args.max)
+        print("STATS_BATCH " + json.dumps(
+            {"platform": "douyin", "count": len(videos), "videos": videos},
+            ensure_ascii=False), flush=True)
+        sys.exit(0)
 
     titles = list(args.title or [])
     if args.brief and args.platform:

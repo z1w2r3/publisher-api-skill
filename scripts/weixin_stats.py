@@ -11,9 +11,82 @@ exit 0: 全部命中（含PENDING），exit 1: 未找到
 """
 import argparse, asyncio, json, re, sys
 sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
-from cdp_base import connect_browser, safe_disconnect
+from cdp_base import connect_browser, safe_disconnect, load_and_collect_json, find_dict_list
 
 LIST_URL = "https://channels.weixin.qq.com/platform/post/list"
+
+
+async def list_all(max_videos=80):
+    """批量：加载列表页，拦截 post_list JSON；内容在 frame[1]，列表用「下一页」按钮分页
+    （顶部多为定时未发，已发布的在后面页，必须翻够）。返回全部视频 stats。"""
+    pw, browser = await connect_browser()
+    videos, seen, bodies = [], set(), []
+    try:
+        page = await browser.contexts[0].new_page()
+        try: await page.bring_to_front()
+        except Exception: pass
+
+        async def _grab(resp):
+            try:
+                if "post/post_list" in resp.url and "json" in resp.headers.get("content-type", ""):
+                    bodies.append(await resp.json())
+            except Exception:
+                pass
+
+        page.on("response", lambda r: asyncio.create_task(_grab(r)))
+        await page.goto(LIST_URL, wait_until="domcontentloaded", timeout=30000)
+        try: await page.bring_to_front()
+        except Exception: pass
+        await asyncio.sleep(6)
+
+        def _count():
+            return sum(len((b.get("data") or {}).get("list") or []) for b in bodies)
+
+        for _ in range(8):
+            if _count() >= max_videos:
+                break
+            try:
+                frame = page.frames[1] if len(page.frames) > 1 else page.frames[0]
+                clicked = await frame.evaluate(
+                    "() => {"
+                    "  const els = [...document.querySelectorAll('button,a,[role=button],.weui-desktop-btn,.weui-desktop-pagination__nav *')];"
+                    "  const nx = els.find(e => (e.innerText||'').trim() === '下一页');"
+                    "  if (!nx) return 'no-btn';"
+                    "  const cls = nx.className || '';"
+                    "  if (nx.disabled || cls.includes('disabled') || nx.getAttribute('aria-disabled')==='true') return 'disabled';"
+                    "  nx.click(); return 'clicked';"
+                    "}")
+            except Exception:
+                clicked = "err"
+            if clicked != "clicked":
+                break
+            await asyncio.sleep(2.5)
+
+        for b in bodies:
+            lst = ((b.get("data") or {}).get("list")) or find_dict_list(b, ["objectId", "readCount"])
+            for it in (lst or []):
+                oid = it.get("objectId")
+                if not oid or oid in seen:
+                    continue
+                seen.add(oid)
+                desc = it.get("desc") or {}
+                title = ((desc.get("description") or desc.get("shortTitle") or "")
+                         if isinstance(desc, dict) else "")
+                videos.append({
+                    "id":        oid,
+                    "title":     title,
+                    "views":     it.get("readCount", 0),
+                    "likes":     it.get("likeCount", 0),
+                    "comments":  it.get("commentCount", 0),
+                    "shares":    it.get("forwardCount", 0),
+                    "favorites": it.get("favCount", 0),
+                    "pending":   False,
+                })
+        try: await page.close()
+        except Exception: pass
+    finally:
+        await safe_disconnect(pw, browser)
+    return videos
 
 # 已发布：标题\n日期\n已声明原创\n播放\n点赞\n评论\n收藏\n分享\n置顶
 PUBLISHED_PATTERN = re.compile(
@@ -73,7 +146,16 @@ async def main():
     parser.add_argument('--brief', help='brief.json path; read platform-specific title')
     parser.add_argument('--platform', help='platform key for --brief (weixin-channels)')
     parser.add_argument('--scroll', type=int, default=3, help='滚动加载次数')
+    parser.add_argument('--list', action='store_true', help='批量列出全部视频+stat（一次加载）')
+    parser.add_argument('--max', type=int, default=80)
     args = parser.parse_args()
+
+    if args.list:
+        videos = await list_all(args.max)
+        print("STATS_BATCH " + json.dumps(
+            {"platform": "weixin-channels", "count": len(videos), "videos": videos},
+            ensure_ascii=False), flush=True)
+        sys.exit(0)
 
     titles = list(args.title or [])
     if args.brief and args.platform:

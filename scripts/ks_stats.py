@@ -11,9 +11,38 @@ exit 0: 全部命中，exit 1: 至少一个未命中
 """
 import argparse, asyncio, json, re, sys
 sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
-from cdp_base import connect_browser, safe_disconnect
+from cdp_base import connect_browser, safe_disconnect, load_and_collect_json, find_dict_list
 
 LIST_URL = "https://cp.kuaishou.com/article/manage/video?status=1"
+
+
+async def list_all(max_videos=80):
+    """批量：加载一次列表页，拦截 photo/list JSON，返回全部视频 stats。"""
+    pw, browser = await connect_browser()
+    videos, seen = [], set()
+    try:
+        page, bodies = await load_and_collect_json(browser, LIST_URL, "photo/list", scrolls=4)
+        for b in bodies:
+            for it in find_dict_list(b, ["workId", "playCount"]):
+                wid = it.get("workId")
+                if not wid or wid in seen:
+                    continue
+                seen.add(wid)
+                videos.append({
+                    "id":        wid,
+                    "title":     it.get("title") or "",
+                    "views":     it.get("playCount", 0),
+                    "likes":     it.get("likeCount", 0),
+                    "comments":  it.get("commentCount", 0),
+                    "shares":    0,
+                    "favorites": 0,
+                    "pending":   it.get("publishStatus") not in (4, 5),
+                })
+        try: await page.close()
+        except Exception: pass
+    finally:
+        await safe_disconnect(pw, browser)
+    return videos
 
 # 待发布视频
 PENDING_PATTERN = re.compile(
@@ -59,7 +88,16 @@ async def main():
     parser.add_argument('--brief', help='brief.json path; read platform-specific title')
     parser.add_argument('--platform', help='platform key for --brief (douyin/kuaishou/weixin-channels)')
     parser.add_argument('--pages', type=int, default=3)
+    parser.add_argument('--list', action='store_true', help='批量列出全部视频+stat（一次加载）')
+    parser.add_argument('--max', type=int, default=80)
     args = parser.parse_args()
+
+    if args.list:
+        videos = await list_all(args.max)
+        print("STATS_BATCH " + json.dumps(
+            {"platform": "kuaishou", "count": len(videos), "videos": videos},
+            ensure_ascii=False), flush=True)
+        sys.exit(0)
 
     titles = list(args.title or [])
     if args.brief and args.platform:
