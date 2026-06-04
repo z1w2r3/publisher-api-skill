@@ -219,25 +219,25 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
         return False
 
     async def upload_via_btn(cover_path, label, max_retries=2):
-        """上传封面：复用视频上传同款 CDP 直传（set_file_input_files_via_cdp），
-        直接给封面 file input 设值，不触发原生文件选择对话框 ——
-        根治“系统文件选择框未正确选择/关闭”导致的封面上传失败。
-        用 image accept 关键词锁定封面 input（视频 input 的 accept 为 video，不会误选）。"""
+        """上传封面:用 playwright set_input_files 定位封面弹窗 Semi Upload 隐藏 input。
+        (CDP DOM.setFileInputFiles 对 Semi Upload 只触发预览、不触发真实上传,实测保存后
+        封面为空;封面文件小无 50MB 限制,用 playwright 原生方式,与 SAU 一致。)"""
         for attempt in range(max_retries):
-            ok = await set_file_input_files_via_cdp(
-                page,
-                cover_path,
-                accept_keywords=["image", ".png", ".jpg", ".jpeg", ".webp"],
-                token_prefix="omc-dy-cover-input",
-            )
-            if ok:
-                log(f"[抖音] {label} 上传成功（CDP 直传）")
-                # 等封面渲染预览完成
-                await asyncio.sleep(5)
+            try:
+                # SAU 精确定位:封面弹窗内 div[class^='semi-upload upload'] 容器里的隐藏 input
+                fi = page.locator("div[id*='creator-content-modal'] div[class^='semi-upload upload'] input.semi-upload-hidden-input").first
+                if not await fi.count():
+                    fi = page.locator("div[class^='semi-upload upload'] input.semi-upload-hidden-input").first
+                if not await fi.count():
+                    fi = page.locator("input.semi-upload-hidden-input").last
+                await fi.set_input_files(cover_path)
+                log(f"[抖音] {label} 上传成功（playwright set_input_files）")
+                await asyncio.sleep(6)  # 等 Semi Upload 渲染 + 上传完成
                 return True
-            log(f"[抖音] {label} 上传失败（第{attempt+1}次）")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(3)
+            except Exception as e:
+                log(f"[抖音] {label} 上传失败(第{attempt+1}次): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
         return False
 
     if cover34_path and os.path.exists(cover34_path):
@@ -258,18 +258,41 @@ async def set_cover(page, cover34_path: str, cover43_path: str):
         await asyncio.sleep(5)  # canvas 切换后同样需要稳定时间
         await upload_via_btn(cover43_path, "横封面4:3")
 
-    await page.evaluate("""
-    () => {
-      const btn = [...document.querySelectorAll('button')]
-        .find(e => e.textContent.trim() === '完成' && e.offsetHeight > 0);
-      if (btn) btn.click();
-    }
-    """)
-    await asyncio.sleep(2)
-    # 清理任何遗留的 file chooser 或 dialog
-    await page.keyboard.press("Escape")
-    await asyncio.sleep(0.5)
-    log("[抖音] 封面弹窗关闭")
+    # 关弹窗保存:封面文件异步上传到抖音服务器,太早点「完成」会提示"封面保存失败"
+    # (实测时机不稳:有时一次成功、有时需手动重点一下)。改为点「完成」后检测发布页
+    # 「选择封面」占位是否消失,未成功就等待异步上传后重试,最多 4 次。
+    # 关弹窗保存:横封面异步上传/渲染,「完成」按钮在传完前是 disabled,点太早点不动
+    # (实测人工等一下、按钮变亮再点完成就成功)。等待 + 只点「可点(非 disabled)」的完成,重试。
+    # 先保守等 10s 让横封面异步上传完成(否则「完成」按钮 disabled、点太早保存失败),
+    # 再点可点的「完成」;万一仍未就绪,循环重试兜底。
+    await asyncio.sleep(10)
+    saved = False
+    for save_attempt in range(6):
+        result = await page.evaluate("""
+        () => {
+          for (const label of ['完成', '保存', '确定']) {
+            const btns = [...document.querySelectorAll('button')]
+              .filter(e => e.textContent.trim() === label && e.offsetHeight > 0);
+            for (const btn of btns) {
+              const dis = btn.disabled || btn.getAttribute('aria-disabled') === 'true'
+                || (btn.className || '').includes('disabled');
+              if (!dis) { btn.click(); return label + ':clicked'; }
+            }
+            if (btns.length) return label + ':disabled';
+          }
+          return 'none';
+        }
+        """)
+        await asyncio.sleep(2)
+        ph = await page.evaluate("""() => [...document.querySelectorAll('*')].filter(e => e.textContent.trim() === '选择封面' && e.offsetHeight > 0).length""")
+        log(f"[抖音] 封面保存尝试 {save_attempt+1}: [{result}] → 占位={ph}")
+        if ph == 0:
+            saved = True
+            break
+    if saved:
+        log("[抖音] 封面保存成功（发布页无占位）")
+    else:
+        log("[抖音][警告] 封面保存多次未成功（发布页仍有占位）")
 
 
 async def set_schedule(page, dtime: str):
@@ -498,6 +521,8 @@ async def main():
     parser.add_argument("--cover34", default="")
     parser.add_argument("--cover43", default="")
     parser.add_argument("--dtime",   default="")
+    parser.add_argument("--no-publish", action="store_true",
+                        help="跑到发布前即停、不点发布(草稿保留,测试封面用)")
     args = parser.parse_args()
 
     tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None
@@ -531,12 +556,21 @@ async def main():
         await page.keyboard.press("Escape")
         await asyncio.sleep(1)
 
+        if args.no_publish:
+            log("[抖音] --no-publish:封面已处理,停在此(不走声明/发布,测试用)")
+            await asyncio.sleep(2)
+            return
+
         await set_declaration(page)
 
         if args.dtime:
             ok = await set_schedule(page, args.dtime)
             if not ok:
                 exit_failed(f"抖音：定时设置未生效，期望 {args.dtime[:16]}")
+
+        if args.no_publish:
+            log("[抖音] --no-publish:封面/文案/声明/定时已就绪,停在发布前(不点发布,草稿保留供人工核对封面)")
+            return
 
         ok = await publish(page)
         if ok:
