@@ -39,6 +39,7 @@ async def list_all(max_videos=80):
                 "shares":    st.get("share_count", 0),
                 "favorites": st.get("collect_count", 0),
                 "pending":   bool(ct) and ct > now,
+                "ts":        ct or 0,
             })
 
     try:

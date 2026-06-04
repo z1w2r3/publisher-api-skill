@@ -81,6 +81,7 @@ async def list_all(max_videos=80):
                     "shares":    it.get("forwardCount", 0),
                     "favorites": it.get("favCount", 0),
                     "pending":   False,
+                    "ts":        it.get("createTime") or 0,
                 })
         try: await page.close()
         except Exception: pass

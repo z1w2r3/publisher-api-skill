@@ -37,6 +37,7 @@ async def list_all(max_videos=80):
                     "shares":    0,
                     "favorites": 0,
                     "pending":   it.get("publishStatus") not in (4, 5),
+                    "ts":        int((it.get("uploadTime") or 0) / 1000),
                 })
         try: await page.close()
         except Exception: pass

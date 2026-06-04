@@ -80,6 +80,7 @@ def list_archives(cookie_str, max_videos=80):
                 "coins":     s.get("coin", 0),
                 "danmaku":   s.get("danmaku", 0),
                 "pending":   state != 0,
+                "ts":        a.get("ptime") or a.get("ctime") or 0,
             })
         count = (d.get("page") or {}).get("count", 0)
         if pn * ps >= count:
