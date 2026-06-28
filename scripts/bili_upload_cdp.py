@@ -393,52 +393,149 @@ async def set_cover(page, cover43_path: str, cover169_path: str):
 async def set_schedule(page, dtime: str):
     """
     B站定时发布：
-    1. 打开定时开关
-    2. 点日期元素打开日历 + 选目标日期
-    3. 点时间元素打开时间面板 + 选时/分
-    4. 关闭面板 + 验证
+    - 先打开定时开关
+    - 按完整目标日期 YYYY-MM-DD 选择日期（不能只按日号盲点）
+    - 设置小时/分钟
+    - 强校验日期和时间，不一致直接失败，避免误当定时成功
     注意：B站要求定时 >= 当前时间 + 2小时
     """
     dt = datetime.strptime(dtime, "%Y-%m-%d %H:%M:%S")
+    target_date = dt.strftime("%Y-%m-%d")
     day = str(dt.day)
     hh = f"{dt.hour:02d}"
     mm = f"{dt.minute:02d}"
+    target_time = f"{hh}:{mm}"
 
     log(f"[B站] 设置定时: {dtime}")
 
-    # Step 1: 打开定时开关
-    await page.evaluate("""
+    opened = await page.evaluate("""
     () => {
       const h3 = [...document.querySelectorAll('h3')].find(e => e.textContent.trim() === '定时发布');
-      if (!h3) return;
-      const section = h3.closest('[class*=item]') || h3.parentElement.parentElement;
-      const sw = section.querySelector('[role=switch]')
-        || [...section.querySelectorAll('*')].find(e => e.className?.includes?.('switch') && e.offsetWidth > 20 && e.offsetWidth < 80);
-      if (sw) sw.click();
+      if (!h3) return { success: false, error: '定时发布标题未找到' };
+      const section = h3.closest('[class*=item]') || h3.parentElement?.parentElement || h3.parentElement;
+      const sw = section?.querySelector('[role=switch]')
+        || [...(section?.querySelectorAll('*') || [])].find(e => String(e.className || '').includes('switch') && e.offsetWidth > 20 && e.offsetWidth < 100);
+      if (!sw) return { success: false, error: '定时发布开关未找到' };
+      const cls = String(sw.className || '');
+      const aria = sw.getAttribute('aria-checked');
+      const active = aria === 'true' || /checked|active|open/i.test(cls);
+      if (!active) sw.click();
+      return { success: true, activeBefore: active, className: cls, aria };
     }
     """)
+    if not opened.get('success'):
+        exit_failed(f"B站：定时开关打开失败：{opened.get('error')}")
     await asyncio.sleep(2)
 
-    # Step 2: 点日期元素打开日历 + 选目标日期
-    await page.evaluate(f"""
-    () => {{
-      const els = document.querySelectorAll('.date-show');
-      const dateEl = [...els].find(e => /\\d{{4}}-\\d{{2}}-\\d{{2}}/.test(e.textContent));
-      if (dateEl) dateEl.click();
-      setTimeout(() => {{
-        const item = [...document.querySelectorAll('.date-item')]
-          .find(e => e.textContent.trim() === '{day}');
-        if (item) item.click();
-      }}, 500);
-    }}
-    """)
-    await asyncio.sleep(2)
+    date_clicked = False
+    last_diag = None
+    for attempt in range(8):
+        diag = await page.evaluate("""
+        () => {
+          const visible = e => {
+            const r = e.getBoundingClientRect();
+            const st = getComputedStyle(e);
+            return (r.width || r.height || e.getClientRects().length) && st.display !== 'none' && st.visibility !== 'hidden';
+          };
+          const navOpen = [...document.querySelectorAll('.date-picker-nav-wrp')]
+            .find(e => visible(e) && e.querySelector('.date-picker-nav-title'));
+          if (navOpen) return { success: true, alreadyOpen: true, current: navOpen.innerText?.trim() || '' };
+          const h3 = [...document.querySelectorAll('h3')].find(e => e.textContent.trim() === '定时发布');
+          const section = h3?.closest('[class*=item]') || h3?.parentElement?.parentElement || h3?.parentElement;
+          if (!section) return { success: false, error: '定时发布区域未找到' };
+          const els = [...section.querySelectorAll('.date-show')];
+          const dateEl = els.find(e => /\d{4}-\d{2}-\d{2}/.test(e.textContent || ''));
+          if (!dateEl) return { success: false, error: '定时发布区域内日期显示元素未找到', texts: els.map(e => e.textContent?.trim()) };
+          dateEl.scrollIntoView({ block: 'center' });
+          dateEl.click();
+          return { success: true, current: dateEl.textContent?.trim() || '' };
+        }
+        """)
+        if not diag.get('success'):
+            exit_failed(f"B站：打开日期面板失败：{diag.get('error')}")
+        await asyncio.sleep(0.8)
 
-    # Step 3: 点时间元素打开时间面板（先滚动到可见区域再取坐标）
+        clicked = await page.evaluate("""
+        ({ targetDate, day }) => {
+          const visible = (e) => {
+            const r = e.getBoundingClientRect();
+            const st = getComputedStyle(e);
+            return (r.width || r.height || e.getClientRects().length) && st.display !== 'none' && st.visibility !== 'hidden';
+          };
+          const disabled = (e) => {
+            const cls = String(e.className || '').toLowerCase();
+            const aria = e.getAttribute('aria-disabled');
+            return aria === 'true' || /disabled|disable/.test(cls);
+          };
+          const all = [...document.querySelectorAll('.date-picker-body-item, .date-item, [role=gridcell], td, li')]
+            .filter(e => visible(e) && !disabled(e));
+
+          const exact = all.find(e => {
+            const attrs = [
+              e.getAttribute('title'), e.getAttribute('aria-label'), e.getAttribute('data-date'),
+              e.getAttribute('data-value'), e.getAttribute('value'), e.textContent
+            ].filter(Boolean).map(x => String(x));
+            return attrs.some(x => x.includes(targetDate));
+          });
+          if (exact) { exact.click(); return { success: true, mode: 'exact', text: exact.textContent?.trim() || '', cls: String(exact.className || '') }; }
+
+          const dayItems = all.filter(e => (e.textContent || '').trim() === String(day));
+          const currentMonthItems = dayItems.filter(e => {
+            const cls = String(e.className || '').toLowerCase();
+            const aria = String(e.getAttribute('aria-label') || e.getAttribute('title') || '');
+            if (/prev|previous|next|other|outside/.test(cls)) return false;
+            if (aria && !aria.includes(targetDate) && /\d{4}[-年]/.test(aria)) return false;
+            const opacity = Number(getComputedStyle(e).opacity || 1);
+            return opacity > 0.5;
+          });
+          const target = currentMonthItems[0] || dayItems[0];
+          if (target) { target.click(); return { success: true, mode: 'day-fallback', text: target.textContent?.trim() || '', cls: String(target.className || ''), candidates: dayItems.length }; }
+
+          return {
+            success: false,
+            error: '目标日期项未找到',
+            sample: all.slice(0, 40).map(e => ({ text: (e.textContent || '').trim().slice(0, 30), cls: String(e.className || '').slice(0,80), title: e.getAttribute('title'), aria: e.getAttribute('aria-label') })).filter(x => x.text || x.title || x.aria)
+          };
+        }
+        """, {"targetDate": target_date, "day": day})
+        last_diag = clicked
+        if clicked.get('success'):
+            date_clicked = True
+            log(f"[B站] 日期选择点击: {clicked}")
+            await asyncio.sleep(1.5)
+            break
+
+        moved = await page.evaluate("""
+        () => {
+          const visible = e => {
+            const r = e.getBoundingClientRect();
+            const st = getComputedStyle(e);
+            return (r.width || r.height || e.getClientRects().length) && st.display !== 'none' && st.visibility !== 'hidden';
+          };
+          const nav = [...document.querySelectorAll('.date-picker-nav-wrp')]
+            .find(e => visible(e) && e.querySelector('.date-picker-nav-title'));
+          if (!nav) return { success: false, error: '日期导航未找到' };
+          // B站当前控件：单右箭头 class=next-btn-day 是“下个月”；双右箭头 next-btn-month 是“下一年”。
+          const next = nav.querySelector('.next-btn-day:not(.date-select-disabled)')
+            || nav.querySelector('svg[class*=next-btn-day]:not(.date-select-disabled)');
+          if (next) { next.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); return { success: true, text: next.textContent?.trim() || '', cls: String(next.getAttribute('class') || '') }; }
+          return { success: false, error: '下个月按钮未找到/不可点', nav: nav.outerHTML.slice(0, 500) };
+        }
+        """)
+        log(f"[B站] 日期未命中，尝试翻月 attempt={attempt+1}: {moved}")
+        if not moved.get('success'):
+            break
+        await asyncio.sleep(1)
+
+    if not date_clicked:
+        exit_failed(f"B站：目标日期 {target_date} 未找到/未点击，诊断={last_diag}")
+
     coords = await page.evaluate("""
     () => {
-      const els = document.querySelectorAll('.date-show');
-      const timeEl = [...els].find(e => /^\\d{2}:\\d{2}$/.test(e.textContent));
+      const h3 = [...document.querySelectorAll('h3')].find(e => e.textContent.trim() === '定时发布');
+      const section = h3?.closest('[class*=item]') || h3?.parentElement?.parentElement || h3?.parentElement;
+      const els = section ? section.querySelectorAll('.date-show') : [];
+      const timeEl = [...els].find(e => /^\d{2}:\d{2}$/.test((e.textContent || '').trim()));
       if (!timeEl) return null;
       timeEl.scrollIntoView({ block: 'center' });
       const r = timeEl.getBoundingClientRect();
@@ -450,14 +547,10 @@ async def set_schedule(page, dtime: str):
         log(f"[B站] 点击时间元素打开面板: ({coords['x']:.0f}, {coords['y']:.0f})")
         await asyncio.sleep(2)
     else:
-        log("[B站] 未找到时间元素")
+        exit_failed("B站：未找到时间元素")
 
-    # Step 4: 选小时 + 分钟
-    # B站时间面板: .time-picker-panel-select-wrp 两列（小时/分钟）
-    # 用 scrollIntoView + page.mouse.click(坐标) 确保真实点击生效
     log(f"[B站] 选择时间: {hh}:{mm}")
 
-    # 选小时
     hour_coords = await page.evaluate(f"""
     () => {{
       const wrps = document.querySelectorAll('.time-picker-panel-select-wrp');
@@ -474,9 +567,10 @@ async def set_schedule(page, dtime: str):
     if hour_coords:
         await page.mouse.click(hour_coords['x'], hour_coords['y'])
         log(f"[B站] 点击小时: {hh}")
+    else:
+        exit_failed(f"B站：小时选项 {hh} 未找到")
     await asyncio.sleep(1)
 
-    # 选分钟
     min_coords = await page.evaluate(f"""
     () => {{
       const wrps = document.querySelectorAll('.time-picker-panel-select-wrp');
@@ -493,20 +587,24 @@ async def set_schedule(page, dtime: str):
     if min_coords:
         await page.mouse.click(min_coords['x'], min_coords['y'])
         log(f"[B站] 点击分钟: {mm}")
+    else:
+        exit_failed(f"B站：分钟选项 {mm} 未找到")
     await asyncio.sleep(2)
 
-    # Step 5: 关闭面板 + 验证
     result = await page.evaluate("""
     () => {
-      document.querySelector('h3')?.click();
-      const els = document.querySelectorAll('.date-show');
-      const date = [...els].find(e => /\\d{4}-\\d{2}-\\d{2}/.test(e.textContent))?.textContent;
-      const time = [...els].find(e => /^\\d{2}:\\d{2}$/.test(e.textContent))?.textContent;
+      const h3 = [...document.querySelectorAll('h3')].find(e => e.textContent.trim() === '定时发布');
+      h3?.click();
+      const section = h3?.closest('[class*=item]') || h3?.parentElement?.parentElement || h3?.parentElement;
+      const els = section ? section.querySelectorAll('.date-show') : [];
+      const date = [...els].find(e => /\d{4}-\d{2}-\d{2}/.test(e.textContent || ''))?.textContent?.trim();
+      const time = [...els].find(e => /^\d{2}:\d{2}$/.test((e.textContent || '').trim()))?.textContent?.trim();
       return { date, time };
     }
     """)
     log(f"[B站] 定时验证: {result}")
-
+    if result.get('date') != target_date or result.get('time') != target_time:
+        exit_failed(f"B站：定时校验失败，目标={target_date} {target_time}，实际={result}")
 
 async def publish(page) -> bool:
     """点击立即投稿按钮"""
