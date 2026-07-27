@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-快手视频上传脚本（CDP 连接 OpenClaw 浏览器）
+快手视频上传脚本（CDP 连接 MC 托管浏览器）
 实机调试验证版本 - 2026-03-01
 
 用法：python3 ks_upload.py --video /path/video.mp4 --desc "内容+#话题"

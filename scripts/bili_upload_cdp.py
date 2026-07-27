@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-B站视频上传脚本（CDP 连接 OpenClaw 浏览器）
+B站视频上传脚本（CDP 连接 MC 托管浏览器）
 参考 auto-Browser platform-bilibili.md 流程
 
 用法：

@@ -11,9 +11,13 @@ B站数据回收脚本（创作者稿件列表 API，按标题匹配 — 取代�
   FAILED title_kw=xx error=...
 exit 0: 全部命中(含PENDING), exit 1: 至少一个未找到
 """
-import argparse, json, sys, urllib.request, urllib.parse
+import argparse, json, os, sys, urllib.request, urllib.parse
+from pathlib import Path
 
-COOKIE_PATH = "/Users/zhengweirong/.openclaw/cookies/bilibili_uploader/account.json"
+COOKIE_PATH = os.environ.get(
+    "MC_BILI_COOKIE_PATH",
+    str(Path.home() / ".mission-control" / "cookies" / "bilibili_uploader" / "account.json"),
+)
 LIST_API = "https://member.bilibili.com/x/web/archives"
 
 def load_cookie(path):

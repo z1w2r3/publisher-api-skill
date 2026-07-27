@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CDP 基础工具 - 连接 OpenClaw 浏览器"""
+"""CDP 基础工具 - 连接 MC 托管发布浏览器。"""
 import asyncio
 import os
 import subprocess
@@ -12,7 +12,7 @@ CDP_URL = "http://127.0.0.1:18800"
 
 
 async def connect_browser():
-    """连接 OpenClaw 浏览器，返回 (playwright, browser)"""
+    """连接 MC 托管浏览器，返回 (playwright, browser)。"""
     pw = await async_playwright().start()
     browser = await pw.chromium.connect_over_cdp(CDP_URL)
     return pw, browser

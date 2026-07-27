@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-视频号视频上传脚本（CDP 连接 OpenClaw 浏览器）
+视频号视频上传脚本（CDP 连接 MC 托管浏览器）
 注意：视频号使用 Shadow DOM + iframe，文件上传走 pierce locator
 
 用法：python3 weixin_upload.py --video /path/video.mp4 --short-title "短标题(6-16字)"
@@ -115,7 +115,7 @@ async def upload_video(page, video_path: str):
     }}
     """)
     if js_result:
-        log(f"[视频号] 获取到上传坐标: {js_result}，请确认 OpenClaw 浏览器窗口在前台")
+        log(f"[视频号] 获取到上传坐标: {js_result}，请确认 MC 发布浏览器窗口在前台")
         exit_failed("视频号：需要 peekaboo 物理点击上传，请使用 auto-browser-skill 处理视频号")
     else:
         # 找不到上传入口，先检查是否是登录问题

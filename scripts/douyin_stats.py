@@ -10,7 +10,8 @@
 exit 0: 全部命中（含PENDING），exit 1: 未找到
 """
 import argparse, asyncio, json, re, sys, time
-sys.path.insert(0, '/Users/zhengweirong/.openclaw/skills/publisher-api-skill/scripts')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cdp_base import connect_browser, safe_disconnect, load_and_collect_json
 
 LIST_URL = "https://creator.douyin.com/creator-micro/content/manage"
