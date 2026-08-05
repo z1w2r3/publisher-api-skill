@@ -49,27 +49,34 @@ async def check_login_and_duplicate(page, title: str) -> dict:
 
 async def upload_video(page, video_path: str):
     log(f"[抖音] 上传视频: {video_path}")
-    if await set_file_input_files_via_cdp(
-        page,
-        video_path,
-        accept_keywords=["video", ".mp4"],
-        token_prefix="omc-dy-video-input",
-    ):
-        log("[抖音] 视频文件已选择(CDP)")
-        return
-
-    inputs = await page.query_selector_all("input[type=file]")
-    for inp in inputs:
-        acc = await inp.get_attribute("accept") or ""
-        if "video" in acc or ".mp4" in acc:
-            await inp.set_input_files(video_path)
-            log("[抖音] 视频文件已选择")
+    # 抖音上传页的 file input 会在页面主体出现后延迟挂载；单次探测容易误报失败。
+    # 轮询最多约 60 秒，并同时保留 CDP 与 Playwright 两条设置路径。
+    for attempt in range(24):
+        if await set_file_input_files_via_cdp(
+            page,
+            video_path,
+            accept_keywords=["video", ".mp4"],
+            token_prefix="omc-dy-video-input",
+        ):
+            if attempt:
+                log(f"[抖音] file input 在约 {int(attempt * 2.5)}s 后就绪")
+            log("[抖音] 视频文件已选择(CDP)")
             return
-    if inputs:
-        await inputs[0].set_input_files(video_path)
-        log("[抖音] 视频文件已选择（第一个 input）")
-    else:
-        exit_failed("抖音：找不到视频 file input")
+
+        inputs = await page.query_selector_all("input[type=file]")
+        for inp in inputs:
+            acc = await inp.get_attribute("accept") or ""
+            if "video" in acc or ".mp4" in acc:
+                await inp.set_input_files(video_path)
+                log("[抖音] 视频文件已选择")
+                return
+        if inputs:
+            await inputs[0].set_input_files(video_path)
+            log("[抖音] 视频文件已选择（第一个 input）")
+            return
+        await asyncio.sleep(2.5)
+
+    exit_failed("抖音：找不到视频 file input（等待 60s 后仍未挂载）")
 
 
 async def wait_upload_done(page, timeout=300):
