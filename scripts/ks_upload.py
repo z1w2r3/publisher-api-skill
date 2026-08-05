@@ -19,6 +19,29 @@ from cdp_base import log_argv,  connect_browser, safe_disconnect, new_tab, log, 
 
 MANAGE_URL = "https://cp.kuaishou.com/article/manage/video"
 PUBLISH_URL = "https://cp.kuaishou.com/article/publish/video"
+MIN_SCHEDULE_LEAD_MINUTES = 65
+MAX_SCHEDULE_DAYS = 14
+
+
+def validate_schedule_window(dtime: str):
+    """上传前校验快手定时窗口，避免传完大文件后才被平台拒绝。"""
+    if not dtime:
+        return
+    try:
+        target = datetime.strptime(dtime, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        exit_failed(f"schedule_invalid: 快手定时时间格式错误：{dtime}")
+        return
+
+    delta_seconds = (target - datetime.now()).total_seconds()
+    if delta_seconds < MIN_SCHEDULE_LEAD_MINUTES * 60:
+        minutes = max(0, int(delta_seconds // 60))
+        exit_failed(
+            f"schedule_too_close: 快手定时至少需提前 {MIN_SCHEDULE_LEAD_MINUTES} 分钟，"
+            f"当前仅剩 {minutes} 分钟；目标 {dtime}"
+        )
+    if delta_seconds > MAX_SCHEDULE_DAYS * 24 * 60 * 60:
+        exit_failed(f"schedule_too_far: 快手定时最多支持 {MAX_SCHEDULE_DAYS} 天；目标 {dtime}")
 
 
 async def check_login_and_duplicate(page, dedup_kw: str) -> dict:
@@ -319,6 +342,11 @@ async def set_schedule(page, dtime: str):
     }
     """)
     log(f"[快手] 定时验证: {val}")
+    page_text = await page.evaluate("() => document.body.innerText")
+    if '定时发布仅支持指定 1h～14天 内的时间' in page_text or '定时发布仅支持指定1h～14天内的时间' in page_text:
+        exit_failed(f"schedule_window_rejected: 快手仅支持指定 1h～14天 内的时间；目标 {dtime}")
+    if str(val)[:16] != dtime[:16]:
+        exit_failed(f"schedule_not_applied: 快手定时设置未生效，期望 {dtime[:16]}，实际 {val}")
 
 
 async def publish(page) -> bool:
@@ -386,6 +414,8 @@ async def main():
     parser.add_argument("--dtime", default="")
     parser.add_argument("--dedup-kw", default="")
     args = parser.parse_args()
+
+    validate_schedule_window(args.dtime)
 
     dedup_kw = args.dedup_kw or (args.desc.split('\n')[0] if args.desc else "")
 
