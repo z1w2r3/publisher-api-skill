@@ -63,6 +63,7 @@ async def upload_video(page, video_path: str):
     # 快手发布页加载较慢, file input 常延迟渲染; 轮询等待最多 ~60s 再判失败,
     # 避免页面没渲染好就立即报"找不到视频上传 input"(偶发时序问题, 之前多次成功后突然失败)
     target = None
+    reloads = 0
     for attempt in range(24):
         inputs = await page.query_selector_all('input[type=file]')
         for inp in inputs:
@@ -75,9 +76,23 @@ async def upload_video(page, video_path: str):
             if attempt > 0:
                 log(f"[快手] file input 在约 {int(attempt * 2.5)}s 后就绪")
             break
+
+        # 快手微前端偶发只渲染“应用加载失败，请刷新重试”，此时继续盲等不会出现 input。
+        # 在脚本内识别并刷新，避免整条发布链因一次前端加载失败而停止。
+        try:
+            body_text = await page.evaluate("() => document.body.innerText")
+        except Exception:
+            body_text = ''
+        if '应用加载失败' in body_text and reloads < 2:
+            reloads += 1
+            log(f"[快手] 发布应用加载失败，刷新重试（{reloads}/2）")
+            await page.reload(wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(5)
+            continue
+
         await asyncio.sleep(2.5)
     if not target:
-        exit_failed("快手：找不到视频上传 input（等待 60s 后页面仍无 input[type=file]）")
+        exit_failed("快手：找不到视频上传 input（等待 60s/自动刷新后页面仍无 input[type=file]）")
     await target.set_input_files(video_path)
     log("[快手] 视频文件已选择")
 
